@@ -35,6 +35,15 @@ cd viz
 npm install -d
 ```
 
+Then create a file `viz/token.js` with the contents:
+
+```js
+const MAPBOX_TOKEN = '<YOUR MAPBOX TOKEN>';
+
+export default MAPBOX_TOKEN;
+
+```
+
 ## Run
 
 ```
