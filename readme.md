@@ -25,3 +25,21 @@
 - determine which agents commute
 - if they have vehicles, etc
 - where they go (i.e. activity schedule)
+
+# Visualization
+
+## Setup
+
+```
+cd viz
+npm install -d
+```
+
+## Run
+
+```
+npm start
+```
+
+Then visit `localhost:8081`
+
