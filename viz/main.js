@@ -9,8 +9,11 @@ import MAPBOX_TOKEN from './token';
 // Source data CSV
 const DATA_URL = {
   TRIPS:
-    // 'https://raw.githubusercontent.com/uber-common/deck.gl-data/master/examples/trips/trips.json' // eslint-disable-line
-    '/trips.json' // eslint-disable-line
+    '/trips.json',
+  COORD:
+    '/coord.json',
+  BUSES:
+    '/buses.json'
 };
 
 class Root extends Component {
@@ -23,6 +26,7 @@ class Root extends Component {
         height: 500
       },
       trips: null,
+      buses: null,
       time: 0
     };
 
@@ -31,6 +35,20 @@ class Root extends Component {
         this.setState({trips: response});
       }
     });
+    requestJson(DATA_URL.BUSES, (error, response) => {
+      if (!error) {
+        this.setState({buses: response});
+      }
+    });
+    requestJson(DATA_URL.COORD, (error, response) => {
+      if (!error) {
+        let viewport = this.state.viewport;
+        viewport.latitude = response.lat;
+        viewport.longitude = response.lng;
+        this.setState({viewport: viewport})
+      }
+    });
+
   }
 
   componentDidMount() {
@@ -70,7 +88,7 @@ class Root extends Component {
   }
 
   render() {
-    const {viewport, trips, time} = this.state;
+    const {viewport, trips, buses, time} = this.state;
 
     return (
       <MapGL
@@ -82,6 +100,7 @@ class Root extends Component {
         <DeckGLOverlay
           viewport={viewport}
           trips={trips}
+          buses={buses}
           trailLength={180}
           time={time}
         />

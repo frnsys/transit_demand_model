@@ -11,6 +11,14 @@ const LIGHT_SETTINGS = {
   numberOfLights: 2
 };
 
+
+function marker(coord, radius) {
+  radius = radius || 0.0001;
+  let [lat, lng] = coord;
+  return [[lng-radius, lat+radius], [lng+radius, lat+radius], [lng+radius, lat-radius], [lng-radius, lat-radius]];
+}
+
+
 export default class DeckGLOverlay extends Component {
   static get defaultViewport() {
     return {
@@ -28,9 +36,9 @@ export default class DeckGLOverlay extends Component {
   }
 
   render() {
-    const {viewport, trips, trailLength, time} = this.props;
+    const {viewport, trips, buses, trailLength, time} = this.props;
 
-    if (!trips) {
+    if (!trips || !buses) {
       return null;
     }
 
@@ -39,11 +47,24 @@ export default class DeckGLOverlay extends Component {
         id: 'trips',
         data: trips,
         getPath: d => d.segments,
-        getColor: d => (d.vendor === 0 ? [253, 128, 93] : [23, 184, 190]),
+        getColor: d => (d.vendor === 0 ? [19, 219, 92] : [23, 184, 190]),
         opacity: 0.3,
         strokeWidth: 2,
         trailLength,
         currentTime: time
+      }),
+      new PolygonLayer({
+        id: 'bus-stops',
+        data: buses,
+        filled: true,
+        stroked: false,
+        extruded: true,
+        wireframe: false,
+        opacity: 0.5,
+        getPolygon: d => marker(d),
+        getFillColor: d => [44, 152, 234, 255],
+        getElevation: d => 100,
+        lightSettings: LIGHT_SETTINGS
       })
     ];
 
