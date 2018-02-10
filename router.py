@@ -1,5 +1,7 @@
 import networkx as nx
 
+SPEED_FACTOR = 2
+
 
 class Router():
     def __init__(self, network):
@@ -39,7 +41,7 @@ def edge_weight(u, v, edges):
 def _travel_time(edge):
     """travel time for a traveler entering an edge"""
     # TODO get clarification on these terms and how they're being used here
-    return edge['length'] * (edge['capacity']/(edge['occupancy'] + 1)) * edge['maxspeed']
+    return (edge['length'] * ((edge['occupancy'] + 1)/edge['capacity']) * edge['maxspeed'])/SPEED_FACTOR
 
 
 def travel_time(edges):
