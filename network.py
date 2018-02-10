@@ -22,20 +22,30 @@ edge attributes (may not all be present):
 """
 
 import os
-import hashlib
 import pyproj
+import hashlib
+import requests
 import osmnx as ox
 from collections import defaultdict
 from router import Router
 
+OSM_NOMINATIM = 'https://nominatim.openstreetmap.org/search'
 DEFAULT_SPEED = 30
 ox.settings.data_folder = 'networks'
+
+
+def lookup_place(place):
+    params = {'q': place, 'format': 'json'}
+    resp = requests.get(OSM_NOMINATIM, params=params)
+    results = resp.json()
+    return results[0]
 
 
 class TransitNetwork():
     def __init__(self, place, distance=10000):
         self.place = place
         self.save_file = hashlib.md5(place.encode('utf8')).hexdigest()
+        self.place_meta = lookup_place(place)
 
         if os.path.exists(os.path.join(ox.settings.data_folder, self.save_file)):
             G = ox.load_graphml(self.save_file)

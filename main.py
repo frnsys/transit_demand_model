@@ -4,11 +4,12 @@ from simulation import Sim
 
 
 if __name__ == '__main__':
-    place = 'Brasília, Brazil'
+    place = 'Belo Horizonte, Brazil'
     sim = Sim(place)
 
     # plan routes
-    n_agents = 5000
+    # n_agents = 5000
+    n_agents = 100
     trips = {}
     for agent in range(n_agents):
         start, end = np.random.choice(sim.network.G.nodes(), 2)
@@ -25,3 +26,9 @@ if __name__ == '__main__':
 
     with open('viz/assets/trips.json', 'w') as f:
         json.dump(trips, f)
+
+    with open('viz/assets/coord.json', 'w') as f:
+        json.dump({
+            'lat': float(sim.network.place_meta['lat']),
+            'lng': float(sim.network.place_meta['lon'])
+        }, f)
