@@ -8,7 +8,7 @@ if __name__ == '__main__':
     sim = Sim(place)
 
     # plan routes
-    n_agents = 2000
+    n_agents = 5000
     trips = {}
     for agent in range(n_agents):
         start, end = np.random.choice(sim.network.G.nodes(), 2)

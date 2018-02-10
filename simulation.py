@@ -14,14 +14,16 @@ class Sim():
         """where trips is a dict of {agent_id: (start, end, time)}"""
         # TODO should take into account different modes and so on
         for id, (start, end, time) in trips.items():
+            if start == end:
+                continue
             try:
                 trip = Trip(id, start, end, self.network.router)
+                self.trips[id] = trip
+                event = trip.next()
+                self.events.push(event)
             except nx.exception.NetworkXNoPath:
                 if strict:
                     raise
-            self.trips[id] = trip
-            event = trip.next()
-            self.events.push(event)
 
         # process travel
         next = self.events.pop()

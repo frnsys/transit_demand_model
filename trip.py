@@ -21,6 +21,8 @@ class Trip():
         if edge is not None:
             # leave previous edge
             edge['occupancy'] -= 1
+            if edge['occupancy'] < 0:
+                raise Exception('occupancy should be positive')
             self.path.pop(0)
 
         # compute next leg
@@ -36,11 +38,14 @@ class Trip():
 
         # enter edge
         edge['occupancy'] += 1
+        if edge['occupancy'] <= 0:
+            raise Exception('adding occupant shouldnt make it 0')
 
         # time accumulates
         # TODO this assumes agents don't stop at
         # lights/intersections, so should add in some time,
         # but how much?
+        # or will it not affect the model much?
         time = travel_time + prev_time
 
         # keep track of prev leg
@@ -80,8 +85,6 @@ def segment_leg(network, u, v, edge, step=0.1):
 
 
 def lerp(pt1, pt2, step):
-    # TODO feel like there's a more efficient way
-    # to do this as a vector operation
     return [(pt1+p*(pt2-pt1), p) for p in np.arange(0, 1+step, step)]
 
 
