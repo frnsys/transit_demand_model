@@ -91,3 +91,8 @@ def lerp(pt1, pt2, step):
 def to_latlng(network, x, y):
     lng, lat = pyproj.transform(network.utm_proj, geo_proj, x, y)
     return lat, lng
+
+
+def to_xy(network, lat, lng):
+    y, x = pyproj.transform(geo_proj, network.utm_proj, lng, lat)
+    return y, x
