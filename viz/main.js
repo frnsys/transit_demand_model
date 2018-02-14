@@ -13,6 +13,18 @@ const DATA_URL = {
   debug: '/buses.json'  // bus stops (true, original coords, for debugging)
 };
 
+class Info extends Component {
+  render() {
+    return (
+      <ul>
+        {Object.keys(this.props).map(k => {
+          return <li key={k}>{k}: {this.props[k]}</li>
+        })}
+      </ul>
+    );
+  }
+}
+
 class Root extends Component {
   constructor(props) {
     super(props);
@@ -87,21 +99,24 @@ class Root extends Component {
     const {viewport, trips, buses, debug, time} = this.state;
 
     return (
-      <MapGL
-        {...viewport}
-        mapStyle="mapbox://styles/mapbox/dark-v9"
-        onViewportChange={this._onViewportChange.bind(this)}
-        mapboxApiAccessToken={MAPBOX_TOKEN}
-      >
-        <DeckGLOverlay
-          viewport={viewport}
-          trips={trips}
-          buses={buses}
-          debug={debug}
-          trailLength={180}
-          time={time}
-        />
-      </MapGL>
+      <div>
+        <MapGL
+          {...viewport}
+          mapStyle="mapbox://styles/mapbox/dark-v9"
+          onViewportChange={this._onViewportChange.bind(this)}
+          mapboxApiAccessToken={MAPBOX_TOKEN}
+        >
+          <DeckGLOverlay
+            viewport={viewport}
+            trips={trips}
+            buses={buses}
+            debug={debug}
+            trailLength={180}
+            time={time}
+          />
+        </MapGL>
+        <Info time={time.toFixed(2)} />
+      </div>
     );
   }
 }
