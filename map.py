@@ -22,22 +22,23 @@ edge attributes (may not all be present):
 """
 
 import os
+import json
 import pyproj
 import hashlib
 import logging
 import requests
 import osmnx as ox
+from tqdm import tqdm
 from router import Router
 from pyqtree import Index
 from shapely import geometry
 from collections import defaultdict
 
-logger = logging.getLogger()
-logger.setLevel(logging.INFO)
+logger = logging.getLogger(__name__)
 
 OSM_NOMINATIM = 'https://nominatim.openstreetmap.org/search'
 DEFAULT_SPEED = 30
-ox.settings.data_folder = 'networks'
+ox.settings.data_folder = 'data/networks'
 geo_proj = pyproj.Proj({'init':'epsg:4326'}, preserve_units=True)
 BOUND_RADIUS = 0.01 # TODO tweak this
 
@@ -53,14 +54,14 @@ class Map():
     def __init__(self, place, buses=None, distance=10000):
         self.place = place
         self.buses = buses
-        self.save_file = hashlib.md5(place.encode('utf8')).hexdigest()
+        self.id = hashlib.md5(place.encode('utf8')).hexdigest()
         self.place_meta = lookup_place(place)
         xmin, xmax, ymin, ymax = [float(p) for p in self.place_meta['boundingbox']] # lat lng
         self.bbox = (xmin, ymin, xmax, ymax)
 
-        if os.path.exists(os.path.join(ox.settings.data_folder, self.save_file)):
+        if os.path.exists(os.path.join(ox.settings.data_folder, self.id)):
             logger.info('Loading existing network')
-            G = ox.load_graphml(self.save_file)
+            G = ox.load_graphml(self.id)
         else:
             # the first search result isn't always what we want
             # so keep trying until we find something that clicks
@@ -75,7 +76,7 @@ class Map():
                 print('Falling back to address search at distance={}'.format(distance))
                 G = ox.graph_from_address(place, network_type='drive', simplify=True, distance=distance)
             G = ox.project_graph(G)
-            ox.save_graphml(G, filename=self.save_file)
+            ox.save_graphml(G, filename=self.id)
 
         crs = G.graph['crs']
         self.utm_proj = pyproj.Proj(crs, preserve_units=True)
@@ -107,24 +108,34 @@ class Map():
         impute_speeds = defaultdict(list)
 
         # setup quadtree
+        logger.info('Preparing quadtree index...')
         self.idx = self._make_qt_index()
 
         # set bus positions
         self.bus_stops = {}
         if self.buses is not None:
-            for i, r in self.buses['stops'].iterrows():
-                coord = r.stop_lat, r.stop_lon
-                edge_data, p, pt = self.find_closest_edge(coord)
-                self.bus_stops[i] = {
-                    'edge_data': edge_data,
-                    'along': p,
-                    'point': (pt.x, pt.y),
-                    'coord': self.to_latlng(pt.x, pt.y)
-                }
+            bus_data = 'data/buses/{}.json'.format(self.id)
+            if os.path.exists(bus_data):
+                logger.info('Loading existing bus stop network positions...')
+                self.bus_stops = json.load(open(bus_data, 'r'))
+            else:
+                logger.info('Inferring bus stop network positions...')
+                for i, r in tqdm(self.buses['stops'].iterrows(), total=len(self.buses['stops'])):
+                    coord = r.stop_lat, r.stop_lon
+                    id, edge_data, p, pt = self.find_closest_edge(coord)
+                    self.bus_stops[i] = {
+                        'edge_id': id,
+                        'along': p,
+                        'point': (pt.x, pt.y),
+                        'coord': self.to_latlng(pt.x, pt.y)
+                    }
+                with open(bus_data, 'w') as f:
+                    json.dump(self.bus_stops, f)
 
         # add occupancy to edges
         # and impute values where possible
-        for e, d in self.network.edges.items():
+        logger.info('Preparing edges...')
+        for e, d in tqdm(self.network.edges.items()):
             lanes = d.get('lanes', 1)
             if isinstance(lanes, str):
                 lanes = int(lanes)
@@ -174,7 +185,7 @@ class Map():
     def _make_qt_index(self):
         # in lat, lng
         idx = Index(self.bbox)
-        for e, data in self.network.edges.items():
+        for e, data in tqdm(self.network.edges.items()):
             if 'geometry' not in data:
                 u = self.network.nodes[e[0]]
                 v = self.network.nodes[e[1]]
@@ -219,8 +230,4 @@ class Map():
         line = edge_data['geometry']
         p = line.project(pt, normalized=True)
         pt = line.interpolate(p, normalized=True)
-        return edge_data, p, pt
-
-    def export_json(self):
-        """TODO export processed network as json"""
-        raise NotImplementedError
+        return id, edge_data, p, pt

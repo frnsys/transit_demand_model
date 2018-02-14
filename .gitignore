@@ -1,5 +1,5 @@
 ref
-networks
+data
 node_modules
 viz/assets/*.json
 viz/token.js

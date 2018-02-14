@@ -1,6 +1,9 @@
+import logging
 import networkx as nx
 from trip import Trip
 from events import EventQueue
+
+logger = logging.getLogger(__name__)
 
 
 class Sim():
@@ -11,6 +14,7 @@ class Sim():
 
     def run(self, trips, strict=True):
         """where trips is a dict of {agent_id: (start, end, time)}"""
+        logger.info('Generating trips...')
         # TODO should take into account different modes and so on
         for id, (start, end, time) in trips.items():
             if start == end:
@@ -25,6 +29,7 @@ class Sim():
                     raise
 
         # process travel
+        logger.info('Processing trips...')
         next = self.events.pop()
         while next is not None:
             time, action = next
@@ -47,8 +52,8 @@ class Sim():
 
         return {
             'place': {
-                'lat': float(self.network.place_meta['lat']),
-                'lng': float(self.network.place_meta['lon'])
+                'lat': float(self.map.place_meta['lat']),
+                'lng': float(self.map.place_meta['lon'])
             },
             'trips': trips,
             'bus_stops': bus_stops
