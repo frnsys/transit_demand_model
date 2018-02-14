@@ -13,19 +13,21 @@ const LIGHT_SETTINGS = {
 
 
 function marker(coord, radius) {
-  radius = radius || 0.0001;
+  radius = radius || 0.00002;
   let [lat, lng] = coord;
-  return [[lng-radius, lat+radius], [lng+radius, lat+radius], [lng+radius, lat-radius], [lng-radius, lat-radius]];
+  return [
+    [lng-radius, lat+radius],
+    [lng+radius, lat+radius],
+    [lng+radius, lat-radius],
+    [lng-radius, lat-radius]
+  ];
 }
 
 
 export default class DeckGLOverlay extends Component {
   static get defaultViewport() {
     return {
-      // nyc
-      // longitude: -74,
-      // latitude: 40.72,
-      // brasilia
+      // these will be updated via COORD
       latitude: -15.7757867,
       longitude: -48.0785375,
       zoom: 13,
@@ -36,9 +38,9 @@ export default class DeckGLOverlay extends Component {
   }
 
   render() {
-    const {viewport, trips, buses, trailLength, time} = this.props;
+    const {viewport, trips, buses, debug, trailLength, time} = this.props;
 
-    if (!trips || !buses) {
+    if (!trips || !buses || !debug) {
       return null;
     }
 
@@ -54,7 +56,7 @@ export default class DeckGLOverlay extends Component {
         currentTime: time
       }),
       new PolygonLayer({
-        id: 'bus-stops',
+        id: 'bus-stops-infer',
         data: buses,
         filled: true,
         stroked: false,
@@ -63,7 +65,21 @@ export default class DeckGLOverlay extends Component {
         opacity: 0.5,
         getPolygon: d => marker(d),
         getFillColor: d => [44, 152, 234, 255],
-        getElevation: d => 100,
+        getElevation: d => 50,
+        lightSettings: LIGHT_SETTINGS
+      }),
+
+      new PolygonLayer({
+        id: 'bus-stops-true',
+        data: debug,
+        filled: true,
+        stroked: false,
+        extruded: true,
+        wireframe: false,
+        opacity: 0.5,
+        getPolygon: d => marker(d),
+        getFillColor: d => [255, 0, 0, 255],
+        getElevation: d => 50,
         lightSettings: LIGHT_SETTINGS
       })
     ];

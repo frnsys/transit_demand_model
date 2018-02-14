@@ -6,14 +6,11 @@ import DeckGLOverlay from './deckgl-overlay.js';
 import {json as requestJson} from 'd3-request';
 import MAPBOX_TOKEN from './token';
 
-// Source data CSV
+const COORD = '/coord.json'; // center of place to start viewport
 const DATA_URL = {
-  TRIPS:
-    '/trips.json',
-  COORD:
-    '/coord.json',
-  BUSES:
-    '/buses.json'
+  trips: '/trips.json', // trips
+  buses: '/stops.json', // bus stops (inferred)
+  debug: '/buses.json'  // bus stops (true, original coords, for debugging)
 };
 
 class Root extends Component {
@@ -27,20 +24,20 @@ class Root extends Component {
       },
       trips: null,
       buses: null,
+      debug: null,
       time: 0
     };
 
-    requestJson(DATA_URL.TRIPS, (error, response) => {
-      if (!error) {
-        this.setState({trips: response});
-      }
+    Object.keys(DATA_URL).map(k => {
+      requestJson(DATA_URL[k], (error, response) => {
+        if (!error) {
+          let update = {};
+          update[k] = response;
+          this.setState(update);
+        }
+      });
     });
-    requestJson(DATA_URL.BUSES, (error, response) => {
-      if (!error) {
-        this.setState({buses: response});
-      }
-    });
-    requestJson(DATA_URL.COORD, (error, response) => {
+    requestJson(COORD, (error, response) => {
       if (!error) {
         let viewport = this.state.viewport;
         viewport.latitude = response.lat;
@@ -48,7 +45,6 @@ class Root extends Component {
         this.setState({viewport: viewport})
       }
     });
-
   }
 
   componentDidMount() {
@@ -88,7 +84,7 @@ class Root extends Component {
   }
 
   render() {
-    const {viewport, trips, buses, time} = this.state;
+    const {viewport, trips, buses, debug, time} = this.state;
 
     return (
       <MapGL
@@ -101,6 +97,7 @@ class Root extends Component {
           viewport={viewport}
           trips={trips}
           buses={buses}
+          debug={debug}
           trailLength={180}
           time={time}
         />

@@ -1,6 +1,5 @@
 ref
 networks
-viz/assets/trips.json
-viz/assets/coord.json
-viz/assets/buses.json
 node_modules
+viz/assets/*.json
+viz/token.js
