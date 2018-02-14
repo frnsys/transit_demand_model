@@ -1,11 +1,15 @@
 import json
 import numpy as np
+from map import Map
 from simulation import Sim
+from gtfs import load_gtfs
 
 
 if __name__ == '__main__':
     place = 'Belo Horizonte, Brazil'
-    sim = Sim(place)
+    buses = load_gtfs('gtfs/gtfs_bhtransit.zip')
+    map = Map(place, buses=buses)
+    sim = Sim(map)
 
     # plan routes
     # n_agents = 5000
@@ -17,18 +21,13 @@ if __name__ == '__main__':
     sim.run(trips, strict=False)
 
     # for deckgl visualization
-    trips = []
-    for trip in sim.trips.values():
-        trips.append({
-            'vendor': 0,
-            'segments': trip.segments(sim.network)
-        })
+    data = sim.export()
 
     with open('viz/assets/trips.json', 'w') as f:
-        json.dump(trips, f)
+        json.dump(data['trips'], f)
 
     with open('viz/assets/coord.json', 'w') as f:
-        json.dump({
-            'lat': float(sim.network.place_meta['lat']),
-            'lng': float(sim.network.place_meta['lon'])
-        }, f)
+        json.dump(data['place'], f)
+
+    with open('viz/assets/stops.json', 'w') as f:
+        json.dump(data['bus_stops'], f)

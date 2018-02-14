@@ -10,8 +10,6 @@ import zipfile
 import pandas as pd
 from io import StringIO
 
-path = 'gtfs/gtfs_bhtransit.zip'
-
 
 def load_gtfs(path):
     """load a GTFS zip and return
@@ -23,7 +21,3 @@ def load_gtfs(path):
         contents = zip.read(f).decode('utf8')
         data[k] = pd.read_csv(StringIO(contents))
     return data
-
-
-gtfs = load_gtfs(path)
-stops = [(r.stop_lat, r.stop_lon) for i, r in gtfs['stops'].iterrows()]

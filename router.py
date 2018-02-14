@@ -11,7 +11,7 @@ class Router():
     def route(self, start, end):
         """returns shortest weighted path
         between start & end as a sequence of nodes"""
-        return nx.dijkstra_path(self.network.G, start, end, edge_weight)
+        return nx.dijkstra_path(self.network, start, end, edge_weight)
 
     def travel(self, path):
         # last node in path
@@ -20,14 +20,13 @@ class Router():
             return
 
         frm, to = path[:2]
-        edge = self.network.G[frm][to]
+        edge = self.network[frm][to]
         time = travel_time(edge)
 
         # choose quickest edge
-        edge = min(edge.values(), key=_travel_time)
+        edge = min(edge.values(), key=edge_travel_time)
 
         return frm, to, edge, time
-
 
 
 def edge_weight(u, v, edges):
@@ -38,7 +37,7 @@ def edge_weight(u, v, edges):
     return min(e['length'] for e in edges.values())
 
 
-def _travel_time(edge):
+def edge_travel_time(edge):
     """travel time for a traveler entering an edge"""
     # TODO get clarification on these terms and how they're being used here
     return (edge['length'] * ((edge['occupancy'] + 1)/edge['capacity']) * edge['maxspeed'])/SPEED_FACTOR
@@ -47,4 +46,4 @@ def _travel_time(edge):
 def travel_time(edges):
     # there may be multiple edges
     # default to shortest
-    return min(_travel_time(edge) for edge in edges.values())
+    return min(edge_travel_time(edge) for edge in edges.values())
