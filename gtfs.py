@@ -17,7 +17,7 @@ def load_gtfs(path):
     zip = zipfile.ZipFile(path, mode='r')
     data = {}
     for f in zip.namelist():
-        k = f.strip('.txt')
+        k = f.replace('.txt', '')
         contents = zip.read(f).decode('utf8')
-        data[k] = pd.read_csv(StringIO(contents))
+        data[k] = pd.read_csv(StringIO(contents), dtype={'stop_id': str})
     return data
