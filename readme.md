@@ -52,3 +52,25 @@ npm start
 
 Then visit `localhost:8081`
 
+
+---
+
+# graph-tool installation
+
+download release from <https://git.skewed.de/count0/graph-tool/tags>
+
+```
+sudo apt install libcgal-dev libexpat1-dev libsparsehash-dev libcairomm-1.0-dev python3-cairo-dev
+# activate your virtualenv
+./autogen.sh
+./configure --prefix=$HOME/.local
+make install
+```
+
+also:
+
+```
+pip install pycairo
+```
+
+reference: <https://git.skewed.de/count0/graph-tool/wikis/installation-instructions#manual-compilation>
