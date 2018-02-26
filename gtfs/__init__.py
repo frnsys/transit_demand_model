@@ -66,8 +66,7 @@ class Transit:
         """
         gtfs = util.load_gtfs(gtfs_path)
         self._process_gtfs(gtfs)
-
-        self.calendar = Calendar(gtfs)
+        self.calendar = Calendar(gtfs, self.trip_iids)
 
         # prep kdtree for stop nearest neighbor querying;
         # only consider stops that are in trips
@@ -371,12 +370,10 @@ class Transit:
         start_trips = self.stops_trips_sched.loc[start_stop].loc[seconds:]['trip_id'].values
         end_trips = self.stops_trips_sched.loc[end_stop].loc[seconds:]['trip_id'].values
 
-        # SKIPPING FOR NOW
         # only consider trips which are operating for the datetime
-        # service_ids = set(self.services_for_dt(dt)) | set(self.services_for_dt(dt + timedelta(days=1)))
-        # trip_ids = self.trips_for_services(service_ids)
-        # start_trips = set(start_trips) & trip_ids
-        # end_trips = set(end_trips) & trip_ids
+        trip_ids = self.calendar.trips_for_day(dt)
+        start_trips = set(start_trips) & trip_ids
+        end_trips = set(end_trips) & trip_ids
 
         # if the same trip is in the start and end sets,
         # it means we can take just that trip, no transfers.
