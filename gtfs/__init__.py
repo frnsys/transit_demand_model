@@ -5,8 +5,7 @@ routing/search procedure:
 between trips represents a transfer between trips)
 - given a start stop, find trips after the departure time that include that stop
 - given an end stop, find trips after the departure time that include that stop
-- find shortest paths through the trip network connecting these trips (TODO
-don't want to search _every_ pair...)
+- find shortest paths through the trip network connecting these trips
 
 TODO need to handle cases where a given stop is unexpectedly out of service or something
 which will affect the trip network (might potentially ruin transfers)
@@ -29,17 +28,15 @@ import os
 import json
 import hashlib
 import logging
-import pandas as pd
 import networkx as nx
 from tqdm import tqdm
 from functools import partial
-from datetime import timedelta
+from itertools import starmap
 from scipy.spatial import KDTree
 from collections import defaultdict
-from itertools import product, starmap
-from . import util, enum
+from .calendar import Calendar
+from . import util
 
-logging.basicConfig(level=logging.DEBUG)
 logger = logging.getLogger(__name__)
 
 base_transfer_time = 2*60 # lower-bound time-delta overhead for changing trips
@@ -48,11 +45,18 @@ footpath_speed_kmh = 5 / 3600
 footpath_delta_max = 7*60 # all footpaths longer than that are discarded as invalid
 footpath_closest_stops = 5 # number of closest stops to consider for non-same stop walking transfer
 
-# TODO standardize the internal trip/stop id stuff so
-# that it's always iid except at public user input/output points
+
+def nodetype(u):
+    """parse serialized network nodes"""
+    t, s = u[1:-1].split(',')
+    return int(t), int(s)
+
 
 class Transit:
-    def __init__(self, gtfs_path, save_path, closest_indirect_transfers=2):
+    network_file = 'network.gz'
+    transfers_file = 'transfer.json'
+
+    def __init__(self, gtfs_path, save_path, closest_indirect_transfers=3):
         """
         `closest_indirect_transfers` determines the number of closest stops for which
         indirect (walking) transfers are generated for. if you encounter a lot of
@@ -63,8 +67,7 @@ class Transit:
         gtfs = util.load_gtfs(gtfs_path)
         self._process_gtfs(gtfs)
 
-        # TODO this can come after we figure out general trip routing
-        # self._parse_calendar(gtfs)
+        self.calendar = Calendar(gtfs)
 
         # prep kdtree for stop nearest neighbor querying;
         # only consider stops that are in trips
@@ -75,32 +78,42 @@ class Transit:
         self._transfer_times = {}
 
         if os.path.exists(save_path):
-            logger.debug('Loading existing trip network...')
-            def nodetype(u):
-                t, s = u[1:-1].split(',')
-                return int(t), int(s)
-            self.trip_network = nx.read_edgelist(save_path,
-                                                 data=True,
-                                                 delimiter='\t',
-                                                 create_using=nx.DiGraph(),
-                                                 nodetype=nodetype)
-
-            with open('/tmp/foo.json', 'r') as f:
-                self.trips_to_transfer_stops = {int(i): s for i, s in json.load(f).items()}
-            with open('/tmp/bar.json', 'r') as f:
-                self._transfer_times = json.load(f)
+            logger.debug('Loading existing trip data and network...')
+            self._load(save_path)
         else:
             logger.debug('No existing trip network, computing new one')
             self.trip_network = self._compute_trip_network(closest_indirect_transfers)
 
             logger.debug('Saving trip network...')
-            nx.write_edgelist(self.trip_network, save_path, data=True, delimiter='\t')
-            with open('/tmp/foo.json', 'w') as f:
-                json.dump(self.trips_to_transfer_stops, f)
-            with open('/tmp/bar.json', 'w') as f:
-                json.dump(self._transfer_times, f)
+            self._save(save_path)
 
         logger.debug('Done')
+
+    def _load(self, save_path):
+        self.trip_network = nx.read_edgelist(
+            os.path.join(save_path, self.network_file),
+            data=True,
+            delimiter='\t',
+            create_using=nx.DiGraph(),
+            nodetype=nodetype)
+
+        with open(os.path.join(save_path, self.transfers_file), 'r') as f:
+            data = json.load(f)
+            self.trips_to_transfer_stops = {int(i): s for i, s in data['trip_transfer_stops'].items()}
+            self._transfer_times = data['transfer_times']
+
+    def _save(self, save_path):
+        os.mkdir(save_path)
+        nx.write_edgelist(
+            self.trip_network,
+            os.path.join(save_path, self.network_file),
+            data=True, delimiter='\t')
+
+        with open(os.path.join(save_path, self.transfers_file), 'w') as f:
+            json.dump({
+                'trip_transfer_stops': self.trips_to_transfer_stops,
+                'transfer_times': self._transfer_times
+            }, f)
 
     def _process_gtfs(self, gtfs):
         logger.debug('Processing GTFS data...')
@@ -123,28 +136,22 @@ class Transit:
         # - trip ids with internal trip ids (trip iids)
         # - stop ids with internal stop ids (stop iids)
         timetable = gtfs['stop_times']
-        to_replace = {
-            'trip_id': {v:k for k, v in self.trips['trip_id'].items()},
-            'stop_id': {v:k for k, v in self.stops['stop_id'].items()}
-        }
-        timetable.replace(to_replace=to_replace, inplace=True)
-        # TODO see if this is faster?
-        # timetable['trip_id'] = timetable['trip_id'].map(lambda id: self.trips['trip_id'].Index)
-        # timetable['stop_id'] = timetable['stop_id'].map(lambda id: self.trips['stop_id'].Index)
+        self.trip_iids = {v:k for k, v in self.trips['trip_id'].items()}
+        self.stop_iids = {v:k for k, v in self.stops['stop_id'].items()}
 
         # convert gtfs time strings to equivalent integer seconds
         # so we can leverage pandas indexing for performance reasons
-        times_in_seconds = timetable.apply(
+        changes = timetable.apply(
             lambda row: (
+                (self.trip_iids[row.trip_id], self.stop_iids[row.stop_id]),
                 util.gtfs_time_to_secs(row.arrival_time),
                 util.gtfs_time_to_secs(row.departure_time)),
             axis=1)
-        timetable['arr_sec'], timetable['dep_sec'] = zip(*times_in_seconds)
+        timetable[['trip_id', 'stop_id']], timetable['arr_sec'], timetable['dep_sec'] = zip(*changes)
 
         # map trip_id->[stops]
         # sort by stop sequence so we know each trip group
         # has stops in the correct order
-        # TODO rename this, was self.trips
         self.trip_stops = timetable.sort_values('stop_sequence').groupby('trip_id')
 
         # many trips have the same sequence of stops,
@@ -163,7 +170,6 @@ class Transit:
         for trip_id, stops in self.trip_stops:
             # generate an id for this stop sequence
             stop_seq = stops['stop_id'].values
-            # TODO we can probably replace these with integers too
             stop_seq_id = '_'.join(map(str, stop_seq)).encode('utf8')
             stop_seq_id = hashlib.md5(stop_seq_id).hexdigest()
 
@@ -180,15 +186,6 @@ class Transit:
         # this lets us, for example,
         # find trips departing from stop x after 10:00:00
         self.stops_trips_sched = timetable.set_index(['stop_id', 'dep_sec']).sort_index(level='dep_sec')
-
-
-    def _stop_iids(self, stop_ids):
-        # from stop_ids->stop_iids (internal stop ids)
-        return self.stops[self.stops['stop_id'].isin(stop_ids)].index.values
-
-    def _trip_iids(self, trip_ids):
-        # from stop_ids->stop_iids (internal stop ids)
-        return self.trips[self.trips['trip_id'].isin(trip_ids)].index.values
 
     def _compute_trip_network(self, closest_indirect_transfers):
         """
@@ -252,7 +249,7 @@ class Transit:
                 travel_time = arr_b - dep_a
                 trip_network.add_edge(frm, to, weight=travel_time)
 
-        # # TODO cleanup
+        # easy way to look up which of a trip's stops are transfer stops
         self.trips_to_transfer_stops = {t: list(s) for t, s in self.trips_to_transfer_stops.items()}
 
         return trip_network
@@ -355,7 +352,6 @@ class Transit:
         stops = self.stops.loc[idxs]
 
         # compute estimated walking times
-        # TODO vectorize
         times = [
             util.walking_time(coord, (lat, lon), footpath_delta_base, footpath_speed_kmh)
             for lat, lon in stops[['stop_lat', 'stop_lon']].values]
@@ -367,22 +363,13 @@ class Transit:
         """compute a trip-level route between
         a start and an end stop for a given datetime"""
         # convert to iids
-        # TODO this does not keep input order
-        # start_stop, end_stop = self._stop_iids([start_stop, end_stop])
-        start_stop = self._stop_iids([start_stop])[0]
-        end_stop = self._stop_iids([end_stop])[0]
+        start_stop = self.stop_iids[start_stop]
+        end_stop = self.stop_iids[end_stop]
 
         # look only for trips starting after the departure time
         seconds = util.time_to_secs(dt.time())
         start_trips = self.stops_trips_sched.loc[start_stop].loc[seconds:]['trip_id'].values
         end_trips = self.stops_trips_sched.loc[end_stop].loc[seconds:]['trip_id'].values
-
-        # if the same trip is in the start and end sets,
-        # it means we can take just that trip, no transfers
-        # so just return that
-        same_trips = set(start_trips) & set(end_trips)
-        if same_trips:
-            return [[(t, start_stop), (t, end_stop)] for t in same_trips]
 
         # SKIPPING FOR NOW
         # only consider trips which are operating for the datetime
@@ -391,134 +378,62 @@ class Transit:
         # start_trips = set(start_trips) & trip_ids
         # end_trips = set(end_trips) & trip_ids
 
-        print('start trips', start_trips)
-        print('end trips', end_trips)
+        # if the same trip is in the start and end sets,
+        # it means we can take just that trip, no transfers.
+        # so just return that
+        same_trips = set(start_trips) & set(end_trips)
+        if same_trips:
+            return [[(t, start_stop), (t, end_stop)] for t in same_trips]
 
-        # filter equivalent start trips down to soonest-departing ones
+        # filter equivalent start trips (i.e. those with the same stop sequence)
+        # down to soonest-departing ones, assuming people want to take the
+        # soonest trip.
         # the `first()` call assumes that these are sorted by departure time,
         # which they should be
-        start_trips = self.stops_trips_sched[self.stops_trips_sched.trip_id.isin(start_trips)].loc[start_stop].groupby('stop_seq_id').first()['trip_id'].values
+        start_trips = self.stops_trips_sched[self.stops_trips_sched.trip_id.isin(start_trips)]
+        start_trips = start_trips.loc[start_stop].groupby('stop_seq_id').first()['trip_id'].values
 
-        # TODO can first check if (start_trip, start_stop) exists
-        # same for end nodes, before searching for closest transfer stop
         # find closest transfer stops for these trips
-        # TODO this can be done better/faster
-        start_nodes = []
-        for trip_iid in start_trips:
-            stop_iids = self.trips_to_transfer_stops[trip_iid]
-            # TODO should select after start_stop
-            # instead of iterating over all of them
-            seen = False
-            # assuming sorted in stop sequence
-            all_stops = self.trip_stops.get_group(trip_iid)
-            all_stops = all_stops[all_stops.dep_sec >= seconds]['stop_id'].values
-            # something like:?
-            # all_stops = all_stops[(all_stops.dep_sec >= seconds) & (all_stops.stop_id.isin(transfer_stop_iids))]
-            for stop_iid in all_stops:
-                if not seen and stop_iid == start_stop:
-                    seen = True
-                if seen and stop_iid in stop_iids:
-                    start_nodes.append((trip_iid, stop_iid))
-                    break
-        end_nodes = []
-        for trip_iid in end_trips:
-            stop_iids = self.trips_to_transfer_stops[trip_iid]
-            # TODO should select before end_stop
-            # instead of iterating over all of them
-            seen = False
-            # assuming sorted in stop sequence, go in reverse
-            for stop_iid in self.trip_stops.get_group(trip_iid)['stop_id'].values[::-1]:
-                if not seen and stop_iid == end_stop:
-                    seen = True
+        start_nodes = [self._next_node_stop(trip_iid, start_stop) for trip_iid in start_trips]
+        end_nodes = [self._next_node_stop(trip_iid, end_stop) for trip_iid in end_trips]
 
-                if seen and stop_iid in stop_iids:
-                    end_nodes.append((trip_iid, stop_iid))
-                    break
+        # add START and END nodes to simplify pathfinding
+        self.trip_network.add_edges_from([('START', node, {'weight': travel_time}) for node, travel_time in start_nodes])
+        self.trip_network.add_edges_from([(node, 'END', {'weight': travel_time}) for node, travel_time in end_nodes])
 
-        # find shortest paths between each start-end trip pair
-        paths = []
-        print('start nodes', start_nodes)
-        print('end nodes', end_nodes)
-        # TODO any way to further reduce these combinations?
-        # could cache which trips connect to which other trips,
-        # and immediately discard combinations which arent in that cache
-        for start_node, end_node in product(start_nodes, end_nodes):
-            try:
-                # TODO go according to travel time, not just transfer time
-                path = nx.dijkstra_path(self.trip_network, start_node, end_node, self._get_transit_time)
-            except nx.exception.NetworkXNoPath:
-                print('no path found for: ', start_node, end_node)
-                continue
-            paths.append(path)
+        path = nx.dijkstra_path(self.trip_network, 'START', 'END', self._get_transit_time)
+        self.trip_network.remove_nodes_from(['START', 'END'])
+        return path[1:-1]
 
-        return paths
+    def _next_node_stop(self, trip_id, stop_id, reverse=False):
+        """given a trip iid and stop iid, find the soonest
+        stop in this trip that has a node in the trip network
+        (so we can use it for trip-level routing).
+        - if the specified stop _is_ a node in the trip network, just
+        reutrn that node.
+        - if `reverse` is False, return the _soonest_ node (i.e. the
+        first to come _after_ the specified stop iid)
+        - if `reverse` is True, instead find the most _recent_ node (i.e. the
+        first to come _before_ the specified stop iid_"""
+        stop_iids = self.trips_to_transfer_stops[trip_id]
 
-    # =============================
-    # TEMP NOT WORRYING ABOUT THESE
-    # =============================
-    # def services_for_dt(self, dt):
-    #     """returns operating service ids
-    #     for a given datetime"""
-    #     # gives weekday as an int,
-    #     # where `monday = 0`
-    #     weekday = enum.Weekday(dt.weekday())
+        # if this is already a network node, just use that
+        if stop_id in stop_iids:
+            return (trip_id, stop_id), 0
 
-    #     # get list of service ids as a copy
-    #     # so we can add/remove according to service changes
-    #     services = self.service_days[weekday][:]
+        # should be sorted in stop sequence/dep sec
+        all_stops = self.trip_stops.get_group(trip_id)
+        stop_dep_sec = all_stops[all_stops.stop_id == stop_id]['dep_sec'].iat[0]
+        if reverse:
+            order_filter = all_stops['dep_sec'] < stop_dep_sec
+        else:
+            order_filter = all_stops['dep_sec'] > stop_dep_sec
+        stop_id, arr_sec = all_stops[
+            order_filter & (all_stops['stop_id'].isin(stop_iids))
+        ][['stop_id', 'arr_sec']].values[0]
 
-    #     # check if there are any service changes for the date
-    #     for service_id, change in self.service_changes_for_dt(dt).items():
-    #         if change is enum.ServiceChange.ADDED:
-    #             services.append(service_id)
-    #         else:
-    #             try:
-    #                 services.remove(service_id)
-    #             except ValueError:
-    #                 pass
-    #     return services
-
-    # def service_changes_for_dt(self, dt):
-    #     """return a dict of `{service_id: ServiceChange}`
-    #     describing service changes (additions or removals
-    #     for a given datetime"""
-    #     try:
-    #         changes = self.service_changes.get_group(dt.date())
-    #         return {c.service_id: enum.ServiceChange(c.exception_type) for i, c in changes.iterrows()}
-    #     except KeyError:
-    #         return {}
-
-    # def trips_for_services(self, service_ids):
-    #     """get trip ids that encompass a given list of service ids"""
-    #     trips = set()
-    #     for service_id in service_ids:
-    #         trip_ids = self.services.get(service_id, [])
-    #         trips = trips | set(trip_ids)
-    #     return trips
-    #
-    # def _parse_calendar(self, gtfs):
-    #     """parse calendar data for service days/changes/exceptions"""
-    #     # associate services with their operating weekdays
-    #     # NOTE this data provies start and end dates for services
-    #     # but for our simulation we are treating this timetable as ongoing
-    #     calendar = gtfs['calendar']
-    #     service_days = {day: [] for day in enum.Weekday}
-    #     for i, row in calendar.iterrows():
-    #         service_id = row.service_id
-    #         for day, services in service_days.items():
-    #             if row[day.name.lower()] == 1:
-    #                 services.append(service_id)
-    #     self.service_days = service_days
-
-    #     # parse 'date' column as date objects
-    #     # then group by date, so we can quickly query
-    #     # service changes for a given date
-    #     service_changes = gtfs['calendar_dates']
-    #     service_changes['date'] = pd.to_datetime(service_changes.date, format='%Y%m%d').dt.date
-    #     self.service_changes = service_changes.groupby('date')
-
-    #     # map service_id->[trip_ids]
-    #     self.services = {name: group['trip_id'].values
-    #                      for name, group in gtfs['trips'].groupby('service_id')}
-
-
+        # the travel time calcluation isn't super precise,
+        # given that, if we're going backwards (reverse=True)
+        # we should be subtracting the to-stop's arrival time
+        # from the from-stop's departure time.
+        return (trip_id, stop_id), abs(arr_sec - stop_dep_sec)
