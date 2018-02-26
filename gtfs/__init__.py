@@ -390,6 +390,14 @@ class Transit:
         start_trips = self.stops_trips_sched[self.stops_trips_sched.trip_id.isin(start_trips)]
         start_trips = start_trips.loc[start_stop].groupby('stop_seq_id').first()['trip_id'].values
 
+        # TODO any way to reduce end nodes to one per stop sequence too?
+        # challenge is that whereas with start trips we could look for soonest
+        # departing one, we can't use a similar approach for end trips since
+        # we don't know when the soonest one is (the soonest end trip may not
+        # be accessible from the soonest start trip)
+        # NOTE: actually, in my tests, it seems like the routing took _less_
+        # time with more end nodes
+
         # find closest transfer stops for these trips
         start_nodes = [self._next_node_stop(trip_iid, start_stop) for trip_iid in start_trips]
         end_nodes = [self._next_node_stop(trip_iid, end_stop) for trip_iid in end_trips]
@@ -398,9 +406,10 @@ class Transit:
         self.trip_network.add_edges_from([('START', node, {'weight': travel_time}) for node, travel_time in start_nodes])
         self.trip_network.add_edges_from([(node, 'END', {'weight': travel_time}) for node, travel_time in end_nodes])
 
-        path = nx.dijkstra_path(self.trip_network, 'START', 'END', self._get_transit_time)
+        length, path = nx.single_source_dijkstra(self.trip_network, 'START', target='END', weight=self._get_transit_time)
         self.trip_network.remove_nodes_from(['START', 'END'])
-        return path[1:-1]
+        path[0], path[-1] = start_stop, end_stop
+        return path, length
 
     def _next_node_stop(self, trip_id, stop_id, reverse=False):
         """given a trip iid and stop iid, find the soonest
