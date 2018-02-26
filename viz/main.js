@@ -6,12 +6,24 @@ import DeckGLOverlay from './deckgl-overlay.js';
 import {json as requestJson} from 'd3-request';
 import MAPBOX_TOKEN from './token';
 
-// Source data CSV
+const COORD = '/coord.json'; // center of place to start viewport
 const DATA_URL = {
-  TRIPS:
-    // 'https://raw.githubusercontent.com/uber-common/deck.gl-data/master/examples/trips/trips.json' // eslint-disable-line
-    '/trips.json' // eslint-disable-line
+  trips: '/trips.json', // trips
+  buses: '/stops.json', // bus stops (inferred)
+  debug: '/buses.json'  // bus stops (true, original coords, for debugging)
 };
+
+class Info extends Component {
+  render() {
+    return (
+      <ul>
+        {Object.keys(this.props).map(k => {
+          return <li key={k}>{k}: {this.props[k]}</li>
+        })}
+      </ul>
+    );
+  }
+}
 
 class Root extends Component {
   constructor(props) {
@@ -23,12 +35,26 @@ class Root extends Component {
         height: 500
       },
       trips: null,
+      buses: null,
+      debug: null,
       time: 0
     };
 
-    requestJson(DATA_URL.TRIPS, (error, response) => {
+    Object.keys(DATA_URL).map(k => {
+      requestJson(DATA_URL[k], (error, response) => {
+        if (!error) {
+          let update = {};
+          update[k] = response;
+          this.setState(update);
+        }
+      });
+    });
+    requestJson(COORD, (error, response) => {
       if (!error) {
-        this.setState({trips: response});
+        let viewport = this.state.viewport;
+        viewport.latitude = response.lat;
+        viewport.longitude = response.lng;
+        this.setState({viewport: viewport})
       }
     });
   }
@@ -70,22 +96,27 @@ class Root extends Component {
   }
 
   render() {
-    const {viewport, trips, time} = this.state;
+    const {viewport, trips, buses, debug, time} = this.state;
 
     return (
-      <MapGL
-        {...viewport}
-        mapStyle="mapbox://styles/mapbox/dark-v9"
-        onViewportChange={this._onViewportChange.bind(this)}
-        mapboxApiAccessToken={MAPBOX_TOKEN}
-      >
-        <DeckGLOverlay
-          viewport={viewport}
-          trips={trips}
-          trailLength={180}
-          time={time}
-        />
-      </MapGL>
+      <div>
+        <MapGL
+          {...viewport}
+          mapStyle="mapbox://styles/mapbox/dark-v9"
+          onViewportChange={this._onViewportChange.bind(this)}
+          mapboxApiAccessToken={MAPBOX_TOKEN}
+        >
+          <DeckGLOverlay
+            viewport={viewport}
+            trips={trips}
+            buses={buses}
+            debug={debug}
+            trailLength={180}
+            time={time}
+          />
+        </MapGL>
+        <Info time={time.toFixed(2)} />
+      </div>
     );
   }
 }

@@ -1,3 +1,5 @@
 ref
-networks
-viz/assets/trips.json
+data
+node_modules
+viz/assets/*.json
+viz/token.js
