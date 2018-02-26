@@ -2,7 +2,7 @@ from gtfs import Transit
 from datetime import datetime
 
 if __name__ == '__main__':
-    transit = Transit('data/gtfs/gtfs_bhtransit.zip', 'data/transit/bh.gz')
+    transit = Transit('data/gtfs/gtfs_bhtransit.zip', 'data/transit/bh')
     # transit = Transit('data/gtfs/gtfs_asheville.zip', 'data/transit/asheville.gz')
 
     # dt = datetime(year=2017, month=2, day=22, hour=10)
