@@ -38,9 +38,9 @@ export default class DeckGLOverlay extends Component {
   }
 
   render() {
-    const {viewport, trips, buses, debug, trailLength, time} = this.props;
+    const {viewport, trips, buses, trailLength, time} = this.props;
 
-    if (!trips || !buses || !debug) {
+    if (!trips || !buses) {
       return null;
     }
 
@@ -65,20 +65,6 @@ export default class DeckGLOverlay extends Component {
         opacity: 0.5,
         getPolygon: d => marker(d),
         getFillColor: d => [44, 152, 234, 255],
-        getElevation: d => 50,
-        lightSettings: LIGHT_SETTINGS
-      }),
-
-      new PolygonLayer({
-        id: 'bus-stops-true',
-        data: debug,
-        filled: true,
-        stroked: false,
-        extruded: true,
-        wireframe: false,
-        opacity: 0.5,
-        getPolygon: d => marker(d),
-        getFillColor: d => [255, 0, 0, 255],
         getElevation: d => 50,
         lightSettings: LIGHT_SETTINGS
       })

@@ -345,6 +345,8 @@ class Transit:
     def closest_stops(self, coord, n=5):
         """closest n stop ids for given coord, paired
         with estimated walking time"""
+        # TODO we should probably use UTM positions instead of lat lons
+        # for more accurate distances
         dists, idxs = self._kdtree.query(coord, k=n)
 
         # convert indices to stops

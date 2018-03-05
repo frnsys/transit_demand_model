@@ -4,6 +4,7 @@ from datetime import datetime
 if __name__ == '__main__':
     transit = Transit('data/gtfs/gtfs_bhtransit.zip', 'data/transit/bh')
     # transit = Transit('data/gtfs/gtfs_asheville.zip', 'data/transit/asheville.gz')
+    import ipdb; ipdb.set_trace()
 
     # dt = datetime(year=2017, month=2, day=22, hour=10)
 

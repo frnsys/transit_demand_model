@@ -10,7 +10,6 @@ const COORD = '/coord.json'; // center of place to start viewport
 const DATA_URL = {
   trips: '/trips.json', // trips
   buses: '/stops.json', // bus stops (inferred)
-  debug: '/buses.json'  // bus stops (true, original coords, for debugging)
 };
 
 class Info extends Component {
@@ -36,7 +35,6 @@ class Root extends Component {
       },
       trips: null,
       buses: null,
-      debug: null,
       time: 0
     };
 
@@ -96,7 +94,7 @@ class Root extends Component {
   }
 
   render() {
-    const {viewport, trips, buses, debug, time} = this.state;
+    const {viewport, trips, buses, time} = this.state;
 
     return (
       <div>
@@ -110,7 +108,6 @@ class Root extends Component {
             viewport={viewport}
             trips={trips}
             buses={buses}
-            debug={debug}
             trailLength={180}
             time={time}
           />

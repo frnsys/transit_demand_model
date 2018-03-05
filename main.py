@@ -3,7 +3,7 @@ import logging
 import numpy as np
 from map import Map
 from sim import Sim
-from gtfs import load_gtfs
+from gtfs.util import load_gtfs
 
 logging.basicConfig(level=logging.INFO)
 
@@ -16,7 +16,8 @@ if __name__ == '__main__':
 
     # plan routes
     # n_agents = 5000
-    n_agents = 100
+    n_agents = 2000
+    # n_agents = 100
     trips = {}
     for agent in range(n_agents):
         start, end = np.random.choice(sim.map.network.nodes(), 2)
