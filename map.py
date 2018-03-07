@@ -51,9 +51,9 @@ def lookup_place(place):
 
 
 class Map():
-    def __init__(self, place, buses=None, distance=10000):
+    def __init__(self, place, transit=None, distance=10000):
         self.place = place
-        self.buses = buses
+        self.transit = transit
         self.id = hashlib.md5(place.encode('utf8')).hexdigest()
         self.place_meta = lookup_place(place)
         xmin, xmax, ymin, ymax = [float(p) for p in self.place_meta['boundingbox']] # lat lng
@@ -98,6 +98,28 @@ class Map():
         n, dist = ox.get_nearest_node(self.network, pos, method='euclidean', return_dist=True)
         return self.network.nodes[n]
 
+    def _infer_transit_stops(self):
+        """map public transit stops to road network positions"""
+        self.stops = {}
+        if self.transit is not None:
+            data = 'data/transit/{}.json'.format(self.id)
+            if os.path.exists(data):
+                logger.info('Loading existing transit stop network positions...')
+                self.stops = json.load(open(data, 'r'))
+            else:
+                logger.info('Inferring transit stop network positions...')
+                for i, r in tqdm(self.transit.stops.iterrows(), total=len(self.transit.stops)):
+                    coord = r.stop_lat, r.stop_lon
+                    id, edge_data, p, pt = self.find_closest_edge(coord)
+                    self.stops[i] = {
+                        'edge_id': id,
+                        'along': p,
+                        'point': (pt.x, pt.y),
+                        'coord': self.to_latlng(pt.x, pt.y)
+                    }
+                with open(data, 'w') as f:
+                    json.dump(self.stops, f)
+
     def _prepare_network(self):
         """preprocess the network as needed"""
         # some `maxspeed` edge attributes are missing
@@ -111,26 +133,8 @@ class Map():
         logger.info('Preparing quadtree index...')
         self.idx = self._make_qt_index()
 
-        # set bus positions
-        self.bus_stops = {}
-        if self.buses is not None:
-            bus_data = 'data/buses/{}.json'.format(self.id)
-            if os.path.exists(bus_data):
-                logger.info('Loading existing bus stop network positions...')
-                self.bus_stops = json.load(open(bus_data, 'r'))
-            else:
-                logger.info('Inferring bus stop network positions...')
-                for i, r in tqdm(self.buses['stops'].iterrows(), total=len(self.buses['stops'])):
-                    coord = r.stop_lat, r.stop_lon
-                    id, edge_data, p, pt = self.find_closest_edge(coord)
-                    self.bus_stops[i] = {
-                        'edge_id': id,
-                        'along': p,
-                        'point': (pt.x, pt.y),
-                        'coord': self.to_latlng(pt.x, pt.y)
-                    }
-                with open(bus_data, 'w') as f:
-                    json.dump(self.bus_stops, f)
+        # map public transit stops to road network
+        self._infer_transit_stops()
 
         # add occupancy to edges
         # and impute values where possible

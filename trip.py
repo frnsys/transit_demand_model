@@ -2,7 +2,11 @@ import numpy as np
 
 
 class Trip():
-    def __init__(self, id, start, end, router, start_time=0):
+    def __init__(self, id, start, end, router, start_time=0, public=False):
+        """
+        given a start and end node, compute a route through the trip network.
+        if public=True... TODO
+        """
         self.id = id
         self.start = start
         self.end = end

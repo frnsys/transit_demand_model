@@ -13,10 +13,10 @@ class Sim():
         self.trips = {}
 
     def run(self, trips, strict=True):
-        """where trips is a dict of {agent_id: (start, end, time)}"""
+        """where trips is a dict of {agent_id: (start, end, time, public)}"""
         logger.info('Generating trips...')
         # TODO should take into account different modes and so on
-        for id, (start, end, time) in trips.items():
+        for id, (start, end, time, public) in trips.items():
             if start == end:
                 continue
             try:
@@ -48,7 +48,7 @@ class Sim():
                 'segments': trip.segments(self.map)
             })
 
-        bus_stops = [s['coord'] for s in self.map.bus_stops.values()]
+        stops = [s['coord'] for s in self.map.stops.values()]
 
         return {
             'place': {
@@ -56,5 +56,5 @@ class Sim():
                 'lng': float(self.map.place_meta['lon'])
             },
             'trips': trips,
-            'bus_stops': bus_stops
+            'stops': stops
         }

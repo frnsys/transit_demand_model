@@ -36,6 +36,7 @@ from scipy.spatial import KDTree
 from collections import defaultdict
 from .calendar import Calendar
 from . import util
+from .enum import MoveType, RouteType
 
 logger = logging.getLogger(__name__)
 
@@ -70,23 +71,23 @@ class Transit:
 
         # prep kdtree for stop nearest neighbor querying;
         # only consider stops that are in trips
-        logger.debug('Spatial-indexing stops...')
+        logger.info('Spatial-indexing stops...')
         stop_coords = self.stops[['stop_lat', 'stop_lon']].values
         self._kdtree = KDTree(stop_coords)
 
         self._transfer_times = {}
 
         if os.path.exists(save_path):
-            logger.debug('Loading existing trip data and network...')
+            logger.info('Loading existing trip data and network...')
             self._load(save_path)
         else:
-            logger.debug('No existing trip network, computing new one')
+            logger.info('No existing trip network, computing new one')
             self.trip_network = self._compute_trip_network(closest_indirect_transfers)
 
-            logger.debug('Saving trip network...')
+            logger.info('Saving trip network...')
             self._save(save_path)
 
-        logger.debug('Done')
+        logger.info('Done')
 
     def _load(self, save_path):
         self.trip_network = nx.read_edgelist(
@@ -115,7 +116,7 @@ class Transit:
             }, f)
 
     def _process_gtfs(self, gtfs):
-        logger.debug('Processing GTFS data...')
+        logger.info('Processing GTFS data...')
 
         # get stop_ids that are part of trips
         stops_with_trips = gtfs['stop_times']['stop_id'].unique()
@@ -130,6 +131,7 @@ class Transit:
         self.stops.reset_index(drop=True, inplace=True)
 
         self.trips = gtfs['trips']
+        self.route_types = {r.route_id: RouteType(r.route_type) for r in gtfs['routes'].itertuples()}
 
         # replace:
         # - trip ids with internal trip ids (trip iids)
@@ -186,6 +188,9 @@ class Transit:
         # find trips departing from stop x after 10:00:00
         self.stops_trips_sched = timetable.set_index(['stop_id', 'dep_sec']).sort_index(level='dep_sec')
 
+        # for resolving/executing trips
+        self.timetable = timetable
+
     def _compute_trip_network(self, closest_indirect_transfers):
         """
         generate the trip network for trip-level routing.
@@ -216,7 +221,7 @@ class Transit:
         # direct transfers (i.e. at the same stop)
         # (multiprocessing here does not
         # add much of an increase in speed)
-        logger.debug('Parsing direct transfers...')
+        logger.info('Parsing direct transfers...')
         for edges in tqdm(starmap(self._process_direct_transfers, to_process), total=len(to_process)):
             for frm, to in edges:
                 trip_iid, stop_iid = frm
@@ -224,7 +229,7 @@ class Transit:
                 trip_network.add_edge(frm, to)
 
         # indirect transfers (i.e. between nearby stops)
-        logger.debug('Parsing indirect transfers...')
+        logger.info('Parsing indirect transfers...')
         fn = partial(self._compute_indirect_transfers, stop_seqs, closest_indirect_transfers)
         for edges in tqdm(map(fn, self.stops.itertuples(index=True)), total=len(self.stops)):
             for frm, to in edges:
@@ -232,7 +237,7 @@ class Transit:
                 self.trips_to_transfer_stops[trip_iid].add(stop_iid)
                 trip_network.add_edge(frm, to)
 
-        logger.debug('Linking trip-stops...')
+        logger.info('Linking trip-stops...')
         # for each trip, select stop_ids that there are nodes for (keep track in
         # dict), sort by stop sequence (should already be afaik due to departure
         # times), then iterate pairwise and create edges
@@ -335,11 +340,20 @@ class Transit:
                     yield frm, to
 
     def _get_transit_time(self, frm, to, edge):
+        """get transit time between two connected nodes"""
         if 'weight' in edge:
             return edge['weight']
+
+        # if weight doesn't exist, it's a transfer
         frm_trip_iid, frm_stop_iid = frm
         to_trip_iid, to_stop_iid = to
-        key = '{}->{}'.format(frm_stop_iid, to_stop_iid)
+        return self._get_transfer_time(frm_stop_iid, to_stop_iid)
+
+    def _get_transfer_time(self, from_stop, to_stop):
+        # if the key exists, it's an indirect transfer,
+        # otherwise it's a direct transfer and we just
+        # return the base transfer time
+        key = '{}->{}'.format(from_stop, to_stop)
         return self._transfer_times.get(key, base_transfer_time)
 
     def closest_stops(self, coord, n=5):
@@ -360,37 +374,76 @@ class Transit:
         # pair as `(stop_iid, time)`
         return list(zip(idxs, times))
 
-    def trip_route(self, start_stop, end_stop, dt):
+    def trip_type(self, trip_iid):
+        """return what type of route a trip
+        is on, e.g. bus, metro, etc"""
+        route_id = self.trips.iloc[trip_iid]['route_id']
+        return self.route_types[route_id]
+
+    def trip_route(self, start_coord, end_coord, dt, closest_stops=5):
         """compute a trip-level route between
         a start and an end stop for a given datetime"""
-        # convert to iids
-        start_stop = self.stop_iids[start_stop]
-        end_stop = self.stop_iids[end_stop]
+        # candidate start and end stops,
+        # returned as [(iid, time), ...]
+        start_stops = {s: t for s, t in self.closest_stops(start_coord, n=closest_stops)}
+        end_stops = {s: t for s, t in self.closest_stops(end_coord, n=closest_stops)}
+
+        # if a same stop is in start and end stops,
+        # walking is probably the best option
+        same_stops = set(start_stops.keys()) & set(end_stops.keys())
+        if same_stops:
+            walk_time = util.walking_time(start_coord, end_coord, footpath_delta_base, footpath_speed_kmh)
+            return [{
+                'type': MoveType.WALK,
+                'time': walk_time
+            }]
 
         # look only for trips starting after the departure time
+        # and only consider trips which are operating for the datetime
         seconds = util.time_to_secs(dt.time())
-        start_trips = self.stops_trips_sched.loc[start_stop].loc[seconds:]['trip_id'].values
-        end_trips = self.stops_trips_sched.loc[end_stop].loc[seconds:]['trip_id'].values
+        valid_trip_ids = self.calendar.trips_for_day(dt)
+        start_trips, end_trips = defaultdict(set), defaultdict(set)
+        for start_stop in start_stops.keys():
+            trips = self.stops_trips_sched.loc[start_stop].loc[seconds:]['trip_id'].values
+            trips = set(trips) & valid_trip_ids
 
-        # only consider trips which are operating for the datetime
-        trip_ids = self.calendar.trips_for_day(dt)
-        start_trips = set(start_trips) & trip_ids
-        end_trips = set(end_trips) & trip_ids
+            # filter equivalent start trips (i.e. those with the same stop sequence)
+            # down to soonest-departing ones, assuming people want to take the
+            # soonest trip.
+            # the `first()` call assumes that these are sorted by departure time,
+            # which they should be
+            trips = self.stops_trips_sched[self.stops_trips_sched.trip_id.isin(trips)]
+            trips = trips.loc[start_stop].groupby('stop_seq_id').first()['trip_id'].values
+            start_trips[start_stop] = set(trips)
+        for end_stop in end_stops.keys():
+            trips = self.stops_trips_sched.loc[end_stop].loc[seconds:]['trip_id'].values
+            end_trips[end_stop] = set(trips) & valid_trip_ids
 
         # if the same trip is in the start and end sets,
         # it means we can take just that trip, no transfers.
         # so just return that
-        same_trips = set(start_trips) & set(end_trips)
+        same_trips = []
+        for start_stop, s_trip_ids in start_trips.items():
+            start = {
+                'type': MoveType.WALK,
+                'time': start_stops[start_stop]
+            }
+            for end_stop, e_trip_ids in end_trips.items():
+                end = {
+                    'type': MoveType.WALK,
+                    'time': end_stops[end_stop]
+                }
+                same = s_trip_ids & e_trip_ids
+                if same:
+                    paths = [[start, {
+                        'type': MoveType.RIDE,
+                        'trip': t,
+                        'start': start_stop,
+                        'end': end_stop
+                    }, end] for t in same]
+                    same_trips.append(paths)
         if same_trips:
-            return [[(t, start_stop), (t, end_stop)] for t in same_trips]
-
-        # filter equivalent start trips (i.e. those with the same stop sequence)
-        # down to soonest-departing ones, assuming people want to take the
-        # soonest trip.
-        # the `first()` call assumes that these are sorted by departure time,
-        # which they should be
-        start_trips = self.stops_trips_sched[self.stops_trips_sched.trip_id.isin(start_trips)]
-        start_trips = start_trips.loc[start_stop].groupby('stop_seq_id').first()['trip_id'].values
+            return same_trips
 
         # TODO any way to reduce end nodes to one per stop sequence too?
         # challenge is that whereas with start trips we could look for soonest
@@ -400,18 +453,70 @@ class Transit:
         # NOTE: actually, in my tests, it seems like the routing took _less_
         # time with more end nodes
 
-        # find closest transfer stops for these trips
-        start_nodes = [self._next_node_stop(trip_iid, start_stop) for trip_iid in start_trips]
-        end_nodes = [self._next_node_stop(trip_iid, end_stop) for trip_iid in end_trips]
+        # extend graph to simplify pathfinding
+        added_nodes = ['START', 'END']
+        for stop, walk_time in start_stops.items():
+            added_nodes.append(stop)
+            self.trip_network.add_edge('START', stop, weight=walk_time)
 
-        # add START and END nodes to simplify pathfinding
-        self.trip_network.add_edges_from([('START', node, {'weight': travel_time}) for node, travel_time in start_nodes])
-        self.trip_network.add_edges_from([(node, 'END', {'weight': travel_time}) for node, travel_time in end_nodes])
+            # find closest transfer stops for these trips
+            nodes = [self._next_node_stop(trip_iid, stop) for trip_iid in start_trips[stop]]
+            self.trip_network.add_edges_from([(stop, node, {'weight': travel_time}) for node, travel_time in nodes])
+        for stop, walk_time in end_stops.items():
+            added_nodes.append(stop)
+            self.trip_network.add_edge(stop, 'END', weight=walk_time)
+
+            # find closest transfer stops for these trips
+            nodes = [self._next_node_stop(trip_iid, stop) for trip_iid in end_trips[stop]]
+            self.trip_network.add_edges_from([(node, stop, {'weight': travel_time}) for node, travel_time in nodes])
 
         length, path = nx.single_source_dijkstra(self.trip_network, 'START', target='END', weight=self._get_transit_time)
-        self.trip_network.remove_nodes_from(['START', 'END'])
-        path[0], path[-1] = start_stop, end_stop
-        return path, length
+        self.trip_network.remove_nodes_from(added_nodes)
+
+        # convert route to standard format
+        # TODO this can probably be cleaned up
+        path = path[1:-1]
+        start_stop = path.pop(0)
+        end_stop = path.pop(-1)
+        path_ = [{
+            'type': MoveType.WALK,
+            'time': start_stops[start_stop]
+        }]
+        # group the path nodes by
+        # trip, in sequence
+        # to result in a structure:
+        # [(trip, [stops]), (trip, [stops]), ...]
+        seq = []
+        for u in path:
+            trip, stop = u
+            # keep track of last stop for the trip
+            if not seq:
+                seq.append([trip, start_stop, stop])
+            if seq[-1][0] == trip:
+                seq[-1][2] = stop
+            else:
+                path_.append({
+                    'type': MoveType.RIDE,
+                    'trip': seq[-1][0],
+                    'start': seq[-1][1],
+                    'end': seq[-1][2]
+                })
+                path_.append({
+                    'type': MoveType.WALK,
+                    'time': self._get_transfer_time(seq[-1][2], stop)
+                })
+                seq.append([trip, stop, stop])
+        path_.append({
+            'type': MoveType.RIDE,
+            'trip': seq[-1][0],
+            'start': seq[-1][1],
+            'end': end_stop
+        })
+        path_.append({
+            'type': MoveType.WALK,
+            'time': end_stops[end_stop]
+        })
+        return path_
 
     def _next_node_stop(self, trip_id, stop_id, reverse=False):
         """given a trip iid and stop iid, find the soonest
