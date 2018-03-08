@@ -20,7 +20,11 @@ class Sim():
             if start == end:
                 continue
             try:
-                trip = Trip(id, start, end, self.map.router)
+                if public:
+                    import ipdb; ipdb.set_trace()
+                    # trip = PublicTrip(id, start, end, self.map.transit)
+                else:
+                    trip = Trip(id, start, end, self.map.router)
                 self.trips[id] = trip
                 event = trip.next()
                 self.events.push(event)

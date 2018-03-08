@@ -24,6 +24,8 @@ which is to say, transfers which are for the next departing trip for a particula
 stop sequence. for Belo Horizonte, this cut the edge count down to about 4.7 million.
 """
 
+# TODO are we taking into account waiting times for the next departure?
+
 import os
 import json
 import hashlib
@@ -356,6 +358,14 @@ class Transit:
         key = '{}->{}'.format(from_stop, to_stop)
         return self._transfer_times.get(key, base_transfer_time)
 
+    def _get_scheduled_travel_time(self, trip_iid, from_stop, to_stop):
+        """return travel time (in seconds) between two stops
+        on the same trip, according to the stop schedule"""
+        trip = self.trip_stops.get_group(trip_iid)
+        dep_sec = trip[trip['stop_id'] == from_stop]['dep_sec']
+        arr_sec = trip[trip['stop_id'] == to_stop]['arr_sec']
+        return (arr_sec.values - dep_sec.values)[0]
+
     def closest_stops(self, coord, n=5):
         """closest n stop ids for given coord, paired
         with estimated walking time"""
@@ -403,8 +413,9 @@ class Transit:
         seconds = util.time_to_secs(dt.time())
         valid_trip_ids = self.calendar.trips_for_day(dt)
         start_trips, end_trips = defaultdict(set), defaultdict(set)
-        for start_stop in start_stops.keys():
-            trips = self.stops_trips_sched.loc[start_stop].loc[seconds:]['trip_id'].values
+        for start_stop, walk_time in start_stops.items():
+            # take into account walking time as well
+            trips = self.stops_trips_sched.loc[start_stop].loc[seconds+walk_time:]['trip_id'].values
             trips = set(trips) & valid_trip_ids
 
             # filter equivalent start trips (i.e. those with the same stop sequence)
@@ -435,15 +446,23 @@ class Transit:
                 }
                 same = s_trip_ids & e_trip_ids
                 if same:
+                    # just b/c each stop is on the same trip does not
+                    # necessarily mean it's a valid route;
+                    # it could part of the same trip but going in the wrong
+                    # direction, in which case the estimated travel time would
+                    # be negative. so filter those out.
+                    times = [self._get_scheduled_travel_time(t, start_stop, end_stop) for t in same]
                     paths = [[start, {
                         'type': MoveType.RIDE,
                         'trip': t,
                         'start': start_stop,
-                        'end': end_stop
-                    }, end] for t in same]
-                    same_trips.append(paths)
+                        'end': end_stop,
+                        'time': time,
+                    }, end] for t, time in zip(same, times) if time > 0]
+                    same_trips.extend(paths)
         if same_trips:
-            return same_trips
+            # return the fastest one
+            return min(same_trips, key=lambda p: sum(l['time'] for l in p))
 
         # TODO any way to reduce end nodes to one per stop sequence too?
         # challenge is that whereas with start trips we could look for soonest

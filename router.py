@@ -4,6 +4,8 @@ SPEED_FACTOR = 2
 
 
 class Router():
+    """road network router"""
+
     def __init__(self, network):
         self.network = network
         self.trips = {}
