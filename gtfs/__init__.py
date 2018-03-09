@@ -24,8 +24,6 @@ which is to say, transfers which are for the next departing trip for a particula
 stop sequence. for Belo Horizonte, this cut the edge count down to about 4.7 million.
 """
 
-# TODO are we taking into account waiting times for the next departure?
-
 import os
 import json
 import hashlib
@@ -59,7 +57,7 @@ class Transit:
     network_file = 'network.gz'
     transfers_file = 'transfer.json'
 
-    def __init__(self, gtfs_path, save_path, closest_indirect_transfers=3):
+    def __init__(self, gtfs_path, save_path, closest_indirect_transfers=5):
         """
         `closest_indirect_transfers` determines the number of closest stops for which
         indirect (walking) transfers are generated for. if you encounter a lot of
@@ -76,8 +74,6 @@ class Transit:
         logger.info('Spatial-indexing stops...')
         stop_coords = self.stops[['stop_lat', 'stop_lon']].values
         self._kdtree = KDTree(stop_coords)
-
-        self._transfer_times = {}
 
         if os.path.exists(save_path):
             logger.info('Loading existing trip data and network...')
@@ -102,7 +98,6 @@ class Transit:
         with open(os.path.join(save_path, self.transfers_file), 'r') as f:
             data = json.load(f)
             self.trips_to_transfer_stops = {int(i): s for i, s in data['trip_transfer_stops'].items()}
-            self._transfer_times = data['transfer_times']
 
     def _save(self, save_path):
         os.mkdir(save_path)
@@ -113,8 +108,7 @@ class Transit:
 
         with open(os.path.join(save_path, self.transfers_file), 'w') as f:
             json.dump({
-                'trip_transfer_stops': self.trips_to_transfer_stops,
-                'transfer_times': self._transfer_times
+                'trip_transfer_stops': self.trips_to_transfer_stops
             }, f)
 
     def _process_gtfs(self, gtfs):
@@ -170,6 +164,7 @@ class Transit:
         # so we need to index trips by their stop sequences to
         # identify which trips are equivalent.
         trips_to_stop_seq = {}
+        self.schedule = {}
         for trip_id, stops in self.trip_stops:
             # generate an id for this stop sequence
             stop_seq = stops['stop_id'].values
@@ -179,6 +174,13 @@ class Transit:
             # reverse lookup so we can get
             # the stop sequence graph from a trip_id
             trips_to_stop_seq[trip_id] = stop_seq_id
+
+            self.schedule[trip_id] = {}
+            for r in stops.itertuples():
+                self.schedule[trip_id][r.stop_id] = {
+                    'arr': r.arr_sec,
+                    'dep': r.dep_sec
+                }
 
         timetable['stop_seq_id'] = timetable.apply(lambda row: trips_to_stop_seq[row.trip_id], axis=1)
 
@@ -225,19 +227,19 @@ class Transit:
         # add much of an increase in speed)
         logger.info('Parsing direct transfers...')
         for edges in tqdm(starmap(self._process_direct_transfers, to_process), total=len(to_process)):
-            for frm, to in edges:
+            for frm, to, transfer_wait_time in edges:
                 trip_iid, stop_iid = frm
                 self.trips_to_transfer_stops[trip_iid].add(stop_iid)
-                trip_network.add_edge(frm, to)
+                trip_network.add_edge(frm, to, weight=transfer_wait_time)
 
         # indirect transfers (i.e. between nearby stops)
         logger.info('Parsing indirect transfers...')
         fn = partial(self._compute_indirect_transfers, stop_seqs, closest_indirect_transfers)
         for edges in tqdm(map(fn, self.stops.itertuples(index=True)), total=len(self.stops)):
-            for frm, to in edges:
+            for frm, to, transfer_wait_time in edges:
                 trip_iid, stop_iid = frm
                 self.trips_to_transfer_stops[trip_iid].add(stop_iid)
-                trip_network.add_edge(frm, to)
+                trip_network.add_edge(frm, to, weight=transfer_wait_time)
 
         logger.info('Linking trip-stops...')
         # for each trip, select stop_ids that there are nodes for (keep track in
@@ -285,6 +287,7 @@ class Transit:
             # these assumptions help reduce the number of edges in the network.
             seen = {stop_seq_id}
             frm = (frm, stop_id)
+            frm_arr_time = self._get_arr_sec(*frm)
             for to, ssid in valid_transfers[['trip_id', 'stop_seq_id']].values:
                 # already seen this stop sequence?
                 # if so, skip
@@ -293,7 +296,10 @@ class Transit:
 
                 seen.add(ssid)
                 to = (to, stop_id)
-                yield frm, to
+
+                # see note for similar line in _compute_indirect_transfers
+                wait_time = (self._get_dep_sec(*to) - frm_arr_time)
+                yield frm, to, max(wait_time, base_transfer_time)
 
     def _compute_indirect_transfers(self, stop_trips, closest, row):
         """compute edges for indirect transfers;
@@ -317,12 +323,6 @@ class Transit:
 
         for stop_id, transfer_time in neighbors:
             group = stop_trips.get_group(stop_id)
-
-            # cache walking transfer times between stops
-            transfer_key = '{}->{}'.format(row.stop_id, stop_id)
-            if transfer_key not in self._transfer_times:
-                self._transfer_times[transfer_key] = transfer_time
-
             for frm, arrival_time, stop_seq_id in from_trips:
                 arrival_time_after_walking = arrival_time + transfer_time
 
@@ -333,30 +333,38 @@ class Transit:
                 # (see note in process_direct_transfers)
                 seen = {stop_seq_id}
                 frm = (frm, row.Index) # Index is the stop iid
+                frm_arr_time = self._get_arr_sec(*frm)
                 for to, ssid in valid_transfers[['trip_id', 'stop_seq_id']].values:
                     if ssid in seen:
                         continue
 
                     seen.add(ssid)
                     to = (to, stop_id)
-                    yield frm, to
 
-    def _get_transit_time(self, frm, to, edge):
-        """get transit time between two connected nodes"""
-        if 'weight' in edge:
-            return edge['weight']
+                    # get transfer time, including waiting time
+                    # for the departure of the to trip
+                    # note that b/c transfer time eats into waiting time, we
+                    # subtract it out so we don't double-count it
+                    # btw, we know this first term will be >= transfer_time, b/c
+                    # we already filtered to trips that leave after arrival_time + transfer_time
+                    # it will take _at least_ transfer time, so take that
+                    # e.g.
+                    # - if a trip is leaving in 2min, and transfer walk time is 2min,
+                    #   then total transfer time is 2min
+                    # - if a trip is leaving in 3min, and transfer walk time is 2min,
+                    #   then total transfer time is 3min
+                    # - if a trip is leaving in 1min, and transfer walk time is 2min,
+                    #   we wouldn't have considered that trip
+                    # TODO should we split out edge transfer/walking and waiting time,
+                    # so we can identify them as separate actions in the route path?
+                    wait_time = (self._get_dep_sec(*to) - frm_arr_time)
+                    yield frm, to, max(wait_time, transfer_time)
 
-        # if weight doesn't exist, it's a transfer
-        frm_trip_iid, frm_stop_iid = frm
-        to_trip_iid, to_stop_iid = to
-        return self._get_transfer_time(frm_stop_iid, to_stop_iid)
+    def _get_dep_sec(self, trip_id, stop_id):
+        return self.schedule[trip_id][stop_id]['dep']
 
-    def _get_transfer_time(self, from_stop, to_stop):
-        # if the key exists, it's an indirect transfer,
-        # otherwise it's a direct transfer and we just
-        # return the base transfer time
-        key = '{}->{}'.format(from_stop, to_stop)
-        return self._transfer_times.get(key, base_transfer_time)
+    def _get_arr_sec(self, trip_id, stop_id):
+        return self.schedule[trip_id][stop_id]['arr']
 
     def _get_scheduled_travel_time(self, trip_iid, from_stop, to_stop):
         """return travel time (in seconds) between two stops
@@ -390,7 +398,7 @@ class Transit:
         route_id = self.trips.iloc[trip_iid]['route_id']
         return self.route_types[route_id]
 
-    def trip_route(self, start_coord, end_coord, dt, closest_stops=5):
+    def trip_route(self, start_coord, end_coord, dt, closest_stops=10):
         """compute a trip-level route between
         a start and an end stop for a given datetime"""
         # candidate start and end stops,
@@ -412,6 +420,8 @@ class Transit:
         # and only consider trips which are operating for the datetime
         seconds = util.time_to_secs(dt.time())
         valid_trip_ids = self.calendar.trips_for_day(dt)
+        # print('VALID TRIP IDS IN ROUTING')
+        # print(valid_trip_ids)
         start_trips, end_trips = defaultdict(set), defaultdict(set)
         for start_stop, walk_time in start_stops.items():
             # take into account walking time as well
@@ -480,16 +490,33 @@ class Transit:
 
             # find closest transfer stops for these trips
             nodes = [self._next_node_stop(trip_iid, stop) for trip_iid in start_trips[stop]]
-            self.trip_network.add_edges_from([(stop, node, {'weight': travel_time}) for node, travel_time in nodes])
+            self.trip_network.add_edges_from([(stop, node, {'weight': travel_time})
+                                              for node, travel_time in nodes if node is not None])
         for stop, walk_time in end_stops.items():
             added_nodes.append(stop)
             self.trip_network.add_edge(stop, 'END', weight=walk_time)
 
             # find closest transfer stops for these trips
             nodes = [self._next_node_stop(trip_iid, stop) for trip_iid in end_trips[stop]]
-            self.trip_network.add_edges_from([(node, stop, {'weight': travel_time}) for node, travel_time in nodes])
+            self.trip_network.add_edges_from([(node, stop, {'weight': travel_time})
+                                              for node, travel_time in nodes if node is not None])
 
-        length, path = nx.single_source_dijkstra(self.trip_network, 'START', target='END', weight=self._get_transit_time)
+
+        # even though we've filtered out invalid trips for start/end stops,
+        # there still may be transfers to invalid trips within the network.
+        # so our weight function should return +infinity to avoid those routes
+        # this is sort of hacky -- ideally we'd be able to mask out those edges,
+        # but that will probably slow things down. worth exploring more.
+        weight_fn = lambda frm, to, edge: float('inf') if isinstance(to, tuple) and to[0] not in valid_trip_ids \
+            else edge['weight']
+
+        # paths might not be found for many reasons, but one possible fix is
+        # to increase the `closest_stops` you consider (the faster option),
+        # and/or re-compute the trip network with a higher `closet_indirect_transfers` value
+        # (which takes significantly longer, but may help more in the long run)
+        # this might also happen for trips towards the end of the day that may
+        # need to take trips starting the _next_ day. TODO
+        length, path = nx.single_source_dijkstra(self.trip_network, 'START', target='END', weight=weight_fn)
         self.trip_network.remove_nodes_from(added_nodes)
 
         # convert route to standard format
@@ -520,9 +547,10 @@ class Transit:
                     'start': seq[-1][1],
                     'end': seq[-1][2]
                 })
+                v = (seq[-1][0], seq[-1][2])
                 path_.append({
-                    'type': MoveType.WALK,
-                    'time': self._get_transfer_time(seq[-1][2], stop)
+                    'type': MoveType.TRANSFER,
+                    'time': self.trip_network.get_edge_data(v, u)['weight']
                 })
                 seq.append([trip, stop, stop])
         path_.append({
@@ -547,7 +575,12 @@ class Transit:
         first to come _after_ the specified stop iid)
         - if `reverse` is True, instead find the most _recent_ node (i.e. the
         first to come _before_ the specified stop iid_"""
-        stop_iids = self.trips_to_transfer_stops[trip_id]
+        try:
+            stop_iids = self.trips_to_transfer_stops[trip_id]
+
+        # trip has no transfer stops
+        except KeyError:
+            return None, None
 
         # if this is already a network node, just use that
         if stop_id in stop_iids:
@@ -560,9 +593,15 @@ class Transit:
             order_filter = all_stops['dep_sec'] < stop_dep_sec
         else:
             order_filter = all_stops['dep_sec'] > stop_dep_sec
-        stop_id, arr_sec = all_stops[
+        all_stops= all_stops[
             order_filter & (all_stops['stop_id'].isin(stop_iids))
-        ][['stop_id', 'arr_sec']].values[0]
+        ]
+
+        # trip has no transfer stops before/after specified time
+        if all_stops.empty:
+            return None, None
+
+        stop_id, arr_sec = all_stops[['stop_id', 'arr_sec']].values[0]
 
         # the travel time calcluation isn't super precise,
         # given that, if we're going backwards (reverse=True)

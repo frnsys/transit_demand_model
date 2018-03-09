@@ -16,3 +16,4 @@ class RouteType(enum.Enum):
 class MoveType(enum.Enum):
     WALK = 0
     RIDE = 1
+    TRANSFER = 2

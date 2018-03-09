@@ -13,19 +13,29 @@ transit = Transit('data/gtfs/gtfs_bhtransit.zip', 'data/transit/bh')
 # this is a map {stop_id->{trip_id->[agents]}}
 from collections import defaultdict
 stops = defaultdict(lambda: defaultdict(list))
+trips = {}
 
 class Bus:
     def __init__(self, trip_iid, sched):
         self.id = trip_iid
-        self.stop_idx = -1
+        self.stop_idx = -1 # the most recently visited stop
         self.sched = sched
         self.passengers = defaultdict(list)
+
+    def past_stops(self):
+        idx = self.stop_idx + 1
+        return self.sched.iloc[:idx]['stop_id'].values
 
     def next(self, time):
         # TODO if this is a bus, this should
         # actually go through the road network
         # to influence/be influenced by traffic.
         # other route types just follow the schedule directly.
+        # one way to do this is, instead of returning bus.next as the action
+        # return router.next actions, and give the router an `on_arrive` hook
+        # to call bus.next (triggering passenger pickup/dropoff) and then
+        # the router goes again.
+
         events = []
         self.stop_idx += 1
         cur_stop = self.sched.iloc[self.stop_idx]
@@ -47,50 +57,74 @@ class Bus:
         except IndexError:
             # trip is done
             # TODO re-schedule self for next day?
+            # or, schedule next trip in this route
+            # need to remove self from trip list
             return events
-        time = time + next_stop['arr_sec'] - cur_stop['dep_sec']
+        time = next_stop['arr_sec'] - cur_stop['dep_sec']
         events.append((time, self.next))
         return events
 
 
-def start_atrip(id, path, time):
+def start_atrip(id, path, end, time):
     try:
         leg = path.pop(0)
     except IndexError:
-        print(id, 'ARRIVED', time)
+        print(id, 'ARRIVED', time, datetime.fromtimestamp(time))
         return []
-    action = partial(start_atrip, id, path)
+    action = partial(start_atrip, id, path, end)
     if leg['type'] is MoveType.WALK:
         print(id, 'Walking', time)
-        time = time + leg['time']
-        return [(time, action)]
+        rel_time = leg['time']
+        return [(rel_time, action)]
+    elif leg['type'] is MoveType.TRANSFER:
+        print(id, 'Transferring', time)
+        rel_time = leg['time']
+        return [(rel_time, action)]
     else:
-        # wait at stop
-        # TODO need to check if they arrive on time
-        print(id, 'Waiting at stop', leg['start'], time)
-        stops[leg['start']][leg['trip']].append((leg['end'], action))
-        return []
+        # check if they arrive on time
+        if leg['start'] in trips[leg['trip']].past_stops():
+            # re-plan
+            # note that passengers can miss buses if they arrive EXACTLY
+            # when the bus is supposed to depart.
+            print(id, 'MISSED the bus for stop {} for trip {}, replanning'.format(leg['start'], leg['trip']))
+            dt = datetime.fromtimestamp(time)
+            start = transit.stops.loc[leg['start']][['stop_lat', 'stop_lon']].values
+            path = transit.trip_route(start, end, dt)
+            return [(0, partial(start_atrip, id, path, end))]
 
+        # wait at stop
+        else:
+            print(id, 'Waiting at stop', leg['start'], time)
+            stops[leg['start']][leg['trip']].append((leg['end'], action))
+            return []
 
 if __name__ == '__main__':
-    dt = datetime(year=2017, month=2, day=22, hour=8)
+    dt = datetime(year=2017, month=2, day=12, hour=8) # sunday
+    dt = datetime(year=2017, month=2, day=13, hour=8)
     from time import time as T
     s = T()
 
-    start = (-19.821486,-43.946748)
-    end = (-19.9178,-43.93337)
-    path1 = transit.trip_route(start, end, dt)
+    sim_start_time = dt.replace(hour=0).timestamp()
+    print('START TIME', sim_start_time)
+    print('START TIME', dt.replace(hour=0))
+
+    start1 = (-19.821486,-43.946748)
+    end1 = (-19.9178,-43.93337)
+    path1 = transit.trip_route(start1, end1, dt)
     print('path:', path1)
+    print('='*25)
 
-    start = (-19.920846733136, -43.8850293374623)
-    end = (-19.9145681320285, -43.8823756325257)
-    path2 = transit.trip_route(start, end, dt)
+    start2 = (-19.920846733136, -43.8850293374623)
+    end2 = (-19.9145681320285, -43.8823756325257)
+    path2 = transit.trip_route(start2, end2, dt)
     print('path:', path2)
+    print('='*25)
 
-    start = (-19.9213988706738, -43.878418788464)
-    end = (-19.9238852702832, -43.8968610758699)
-    path3 = transit.trip_route(start, end, dt)
+    start3 = (-19.9213988706738, -43.878418788464)
+    end3 = (-19.9238852702832, -43.8968610758699)
+    path3 = transit.trip_route(start3, end3, dt)
     print('path:', path3)
+    print('='*25)
 
     # pre-queue events for all public transit trips
     # they should always be running, regardless of if there
@@ -101,37 +135,46 @@ if __name__ == '__main__':
     # of time doesn't account for the possibility of trips
     # on the same e.g. tracks being delayed because of delays
     # in earlier trips sharing the same e.g. track.
-    # TODO need to account for weekdays/what the current week day is,
-    # and trips across days.
     # perhaps after a trip stops, it re-queues the next time it will run?
-    time = 0
     events = EventQueue()
+    valid_trip_ids = transit.calendar.trips_for_day(dt)
+    # print('VALID TRIP IDS IN EXECUTOR')
+    # print(valid_trip_ids)
+    # import ipdb; ipdb.set_trace()
     for trip_iid, group in transit.trip_stops:
+        if trip_iid not in valid_trip_ids:
+            continue
         first_stop = group.iloc[0]
         bus = Bus(trip_iid, group)
-        events.push((first_stop['dep_sec'], bus.next))
+        trips[trip_iid] = bus
+        events.push((sim_start_time + first_stop['dep_sec'], bus.next))
 
     # create departure events for agents
     # we created the above paths for hour=8 so use that in seconds
+    # dep_time = 8 * 60 * 60
     dep_time = 8 * 60 * 60
-    for i, path in enumerate([path1, path2, path3]):
-        events.push((dep_time, partial(start_atrip, i, path)))
+    for i, (path, end) in enumerate([(path1, end1), (path2, end2), (path3, end3)]):
+        print(i, 'DEPARTING AT', datetime.fromtimestamp(sim_start_time + dep_time))
+        events.push((sim_start_time + dep_time, partial(start_atrip, i, path, end)))
 
     # run
+    # time = 0
+    time = sim_start_time
     next = events.pop()
     while next is not None:
         time, action = next
         new_events = action(time)
         for event in new_events:
-            events.push(event)
+            countdown, next_action = event
+            next_time = time + countdown
+            events.push((next_time, next_action))
         next = events.pop()
 
     print(T() - s)
     import ipdb; ipdb.set_trace()
 
 """
-TODO
-- have to initialize all public transit in the simulation. makes most sense for
-it to always be running, since it will affect traffic. and it makes it easier to attach
-agents to the transit groups. so these should run even if there are no people aboard.
+- the time in event = (time, action) is relative time, i.e. `time` seconds later.
+- the time we pass into the actions, i.e. `action(time)` is absolute time, i.e. timestamp
+- absolute time is the time we keep track of as the canonical event system time
 """
