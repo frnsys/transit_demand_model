@@ -1,0 +1,124 @@
+import numpy as np
+import pandas as pd
+from tqdm import tqdm
+from datetime import timedelta
+from gtfs.util import load_gtfs, walking_time
+from scipy.spatial import KDTree
+from collections import defaultdict
+
+def gtfs_time_to_secs(time):
+    h, m, s = time.split(':')
+    return int(s) + (int(m) * 60) + (int(h) * 60 * 60)
+
+
+def time_to_secs(time):
+    return (time.hour * 60 + time.minute) * 60 + time.second
+
+
+def secs_to_gtfs_time(secs):
+    return str(timedelta(seconds=int(secs)))
+
+
+gtfs = load_gtfs('data/gtfs/gtfs_bhtransit.zip')
+
+# Data pre-processing
+trips = {}
+n_trips = 0 # temp
+trip_freqs = gtfs['frequencies'].groupby('trip_id')
+trip_stops = gtfs['stop_times'].groupby('trip_id')
+stops = []
+for trip_id, freqs in tqdm(trip_freqs):
+    spans = [(gtfs_time_to_secs(s), gtfs_time_to_secs(e), headway)
+             for s, e, headway in freqs[['start_time', 'end_time', 'headway_secs']].values]
+    starts = []
+    for start, end, headway in spans:
+        starts.extend(np.arange(start, end, headway))
+
+    sched = []
+    for stop in trip_stops.get_group(trip_id).itertuples():
+        # TODO this assumes they are sorted by stop sequence already
+        arr, dep = gtfs_time_to_secs(stop.arrival_time), gtfs_time_to_secs(stop.departure_time)
+
+        # in the Belo Horizonte data, stop arrival/departure times were offset
+        # by the first trip's departure time.
+        # we want it to be relative to t=0 instead
+        arr -= starts[0]
+        dep -= starts[0]
+        sched.append((arr, dep, stop.stop_id))
+
+        for start in starts:
+            stops.append((arr+start, dep+start, trip_id, stop.stop_id))
+
+    trips[trip_id] = {
+        'sched': sched,
+        'starts': starts
+    }
+
+    n_trips += len(starts) # temp
+
+import ipdb; ipdb.set_trace()
+
+# for stop_id, sched in tqdm(stops.items()):
+#     # sort by arrival time
+#     sched = sorted(sched, key=lambda d: d[0])
+#     stops[stop_id] = pd.DataFrame.from_records(sched, columns=['arr', 'dep', 'trip_id']).set_index('dep')
+stops = pd.DataFrame.from_records(stops, columns=['arr', 'dep', 'trip_id', 'stop_id']).sort_values('dep').set_index('dep')
+
+print('Spatial-indexing stops...')
+indirect_transfers = defaultdict(list) # TODO can/should prob be a network
+stop_coords = gtfs['stops'][['stop_lat', 'stop_lon']].values
+_kdtree = KDTree(stop_coords)
+
+base_transfer_time = 2*60 # lower-bound time-delta overhead for changing trips
+footpath_delta_base = 2*60 # footpath_delta = delta_base + km / speed_kmh
+footpath_speed_kmh = 5 / 3600
+footpath_delta_max = 7*60 # all footpaths longer than that are discarded as invalid
+
+def closest_stops(coord, n=5):
+    """closest n stop ids for given coord, paired
+    with estimated walking time"""
+    # TODO we should probably use UTM positions instead of lat lons
+    # for more accurate distances
+    dists, idxs = _kdtree.query(coord, k=n)
+
+    # convert indices to stops
+    stops = gtfs['stops'].loc[idxs]
+
+    # compute estimated walking times
+    times = [
+        walking_time(coord, (lat, lon), footpath_delta_base, footpath_speed_kmh)
+        for lat, lon in stops[['stop_lat', 'stop_lon']].values]
+
+    # pair as `(stop_iid, time)`
+    return list(zip(idxs, times))
+
+closest = 5
+print('Indirect transfers')
+for stop in tqdm(gtfs['stops'].itertuples(), total=len(gtfs['stops'])):
+    coord = stop.stop_lat, stop.stop_lon
+
+    # get closest stops to this one
+    neighbors = closest_stops(coord, n=closest+1)
+
+    # skip the first, it's the stop itself
+    neighbors = neighbors[1:]
+
+    # filter out long transfers
+    neighbors = [n for n in neighbors if n[1] <= footpath_delta_max]
+    indirect_transfers[stop.stop_id] = neighbors
+
+# @profile
+def process_transfers():
+    # Transfer pre-processing
+    for trip_id, trip_data in tqdm(trips.items()):
+        # get stops != trip_id and in this trip's stop_ids
+        stop_ids = [stop_id for _, _, stop_id in trip_data['sched']]
+        stops_ = stops[stops['stop_id'].isin(stop_ids) & (stops['trip_id'] != trip_id)]
+        stops_ = stops_.groupby('trip_id')
+        for arr, dep, stop_id in trip_datr['sched']:
+            transfer_trips = []
+            for start in trip_data['starts']:
+                sub = stop_sched.loc[start + arr + base_transfer_time:]
+                transfer_trips = sub.groupby('trip_id').first()
+
+process_transfers()

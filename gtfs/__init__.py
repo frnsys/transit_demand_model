@@ -44,7 +44,7 @@ base_transfer_time = 2*60 # lower-bound time-delta overhead for changing trips
 footpath_delta_base = 2*60 # footpath_delta = delta_base + km / speed_kmh
 footpath_speed_kmh = 5 / 3600
 footpath_delta_max = 7*60 # all footpaths longer than that are discarded as invalid
-footpath_closest_stops = 5 # number of closest stops to consider for non-same stop walking transfer
+
 
 
 def nodetype(u):
@@ -150,6 +150,21 @@ class Transit:
         # sort by stop sequence so we know each trip group
         # has stops in the correct order
         self.trip_stops = timetable.sort_values('stop_sequence').groupby('trip_id')
+
+        # merge trip frequency entries where possible
+        self.freqs = util.compress_frequencies(gtfs['frequencies'])
+        self.freqs = {self.trip_iids[k]: v for k, v in self.freqs.items()}
+        self.stops_spans = defaultdict(lambda: defaultdict(list))
+        for trip_id, spans in self.freqs.items():
+            trip_sched, stop_spans = util.trip_spans_to_stop_spans(
+                trip_id,
+                spans,
+                self.trip_stops.get_group(trip_id).itertuples())
+            # TODO not using trip_sched, but may want to overwrite arr_sec and
+            # dep_sec in self.trip_stops so they are relative rather than
+            # absolute times
+            for stop_iid, spans in stop_spans:
+                self.stops_spans[stop_iid][trip_id].append(spans)
 
         # many trips have the same sequence of stops,
         # they just depart at different times.
@@ -263,8 +278,7 @@ class Transit:
         return trip_network
 
     def _process_direct_transfers(self, stop_id, group):
-        """process direct transfers that occur at the given stop.
-        """
+        """process direct transfers that occur at the given stop."""
         for frm, arrival_time, stop_seq_id in group[['trip_id', 'arr_sec', 'stop_seq_id']].values:
             # can only transfer to trips that depart
             # after the incoming trip arrives, accounting
@@ -414,7 +428,7 @@ class Transit:
             return [{
                 'type': MoveType.WALK,
                 'time': walk_time
-            }]
+            }], walk_time
 
         # look only for trips starting after the departure time
         # and only consider trips which are operating for the datetime
@@ -472,7 +486,7 @@ class Transit:
                     same_trips.extend(paths)
         if same_trips:
             # return the fastest one
-            return min(same_trips, key=lambda p: sum(l['time'] for l in p))
+            return min(same_trips, key=lambda p: sum(l['time'] for l in p)), None # TODO temp
 
         # TODO any way to reduce end nodes to one per stop sequence too?
         # challenge is that whereas with start trips we could look for soonest
@@ -563,7 +577,7 @@ class Transit:
             'type': MoveType.WALK,
             'time': end_stops[end_stop]
         })
-        return path_
+        return path_, length
 
     def _next_node_stop(self, trip_id, stop_id, reverse=False):
         """given a trip iid and stop iid, find the soonest

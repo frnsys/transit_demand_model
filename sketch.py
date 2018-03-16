@@ -15,7 +15,7 @@ from collections import defaultdict
 stops = defaultdict(lambda: defaultdict(list))
 trips = {}
 
-class Bus:
+class Vehicle:
     def __init__(self, trip_iid, sched):
         self.id = trip_iid
         self.stop_idx = -1 # the most recently visited stop
@@ -89,7 +89,7 @@ def start_atrip(id, path, end, time):
             print(id, 'MISSED the bus for stop {} for trip {}, replanning'.format(leg['start'], leg['trip']))
             dt = datetime.fromtimestamp(time)
             start = transit.stops.loc[leg['start']][['stop_lat', 'stop_lon']].values
-            path = transit.trip_route(start, end, dt)
+            path, length = transit.trip_route(start, end, dt)
             return [(0, partial(start_atrip, id, path, end))]
 
         # wait at stop
@@ -110,19 +110,26 @@ if __name__ == '__main__':
 
     start1 = (-19.821486,-43.946748)
     end1 = (-19.9178,-43.93337)
-    path1 = transit.trip_route(start1, end1, dt)
+    s_ = T()
+    path1, length = transit.trip_route(start1, end1, dt)
+    print('routing time:', T() - s_)
     print('path:', path1)
     print('='*25)
+    # import ipdb; ipdb.set_trace()
 
     start2 = (-19.920846733136, -43.8850293374623)
     end2 = (-19.9145681320285, -43.8823756325257)
-    path2 = transit.trip_route(start2, end2, dt)
+    s_ = T()
+    path2, length = transit.trip_route(start2, end2, dt)
+    print('routing time:', T() - s_)
     print('path:', path2)
     print('='*25)
 
     start3 = (-19.9213988706738, -43.878418788464)
     end3 = (-19.9238852702832, -43.8968610758699)
-    path3 = transit.trip_route(start3, end3, dt)
+    s_ = T()
+    path3, length = transit.trip_route(start3, end3, dt)
+    print('routing time:', T() - s_)
     print('path:', path3)
     print('='*25)
 
@@ -145,7 +152,7 @@ if __name__ == '__main__':
         if trip_iid not in valid_trip_ids:
             continue
         first_stop = group.iloc[0]
-        bus = Bus(trip_iid, group)
+        bus = Vehicle(trip_iid, group)
         trips[trip_iid] = bus
         events.push((sim_start_time + first_stop['dep_sec'], bus.next))
 
