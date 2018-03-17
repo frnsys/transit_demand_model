@@ -8,18 +8,17 @@ reference:
 
 import math
 import zipfile
-import numpy as np
 import pandas as pd
 from io import StringIO
 from datetime import timedelta
 from collections import namedtuple
 
 TripSpan = namedtuple('TripSpan', ['start', 'end', 'period'])
-TripStop = namedtuple('TripStop', ['stop_id', 'rel_arr', 'rel_dep'])
+TripStop = namedtuple('TripStop', ['stop_id', 'rel_arr', 'rel_dep', 'transit_time'])
 
 # this doesn't include headway b/c we can get that from the trip info
 # here, arr and dep are in absolute seconds
-StopSpan = namedtuple('StopSpan', ['arr', 'dep'])
+StopSpan = namedtuple('StopSpan', ['start', 'end', 'period', 'wait', 'last_dep'])
 
 
 def load_gtfs(path):
@@ -106,10 +105,7 @@ def trip_spans_to_stop_spans(trip_id, spans, trip_stops):
     convert the trip stop schedule to a schedule
     of relative arrival/departure times,
     and compute arrival/departure spans for each stop along the trip"""
-    starts = []
-    for start, end, headway in spans:
-        starts.extend(np.arange(start, end, headway))
-
+    first_start = spans[0][0]
     trip_sched = []
     stops_spans = []
     # assuming they are sorted by stop sequence already
@@ -119,18 +115,28 @@ def trip_spans_to_stop_spans(trip_id, spans, trip_stops):
         # in the Belo Horizonte data, stop arrival/departure times were offset
         # by the first trip's departure time.
         # we want it to be relative to t=0 instead
-        arr -= starts[0]
-        dep -= starts[0]
-        trip_sched.append(TripStop(stop_id=stop.stop_id, rel_arr=arr, rel_dep=dep))
+        arr -= first_start
+        dep -= first_start
+
+        # calculate transit time between this stop
+        # and the previous stop (0 if no previous stop)
+        if not trip_sched:
+            transit_time = 0
+        else:
+            transit_time = arr - trip_sched[-1].rel_dep
+
+        trip_sched.append(TripStop(stop_id=stop.stop_id, rel_arr=arr, rel_dep=dep, transit_time=transit_time))
 
         stop_spans = []
-        for start in starts:
-            stop_spans.append(StopSpan(arr=arr+start, dep=dep+start))
+        for start, end, headway in spans:
+            # assumes the span end is not a departure time
+            last_dep = ((n_vehicles(start, end, headway) - 1) * headway) + start
+            stop_spans.append(StopSpan(start=start+dep, end=end+arr, period=headway, wait=dep-arr, last_dep=last_dep))
         stops_spans.append((stop.stop_id, stop_spans))
     return trip_sched, stops_spans
 
 
-def next_vehicle_dep(dep, trip_span_start, stop_dep_relative, headway):
+def next_vehicle_dep(dep, span):
     """
     calculate the soonest departure time at a stop
     based on a trip frequency/span
@@ -152,18 +158,20 @@ def next_vehicle_dep(dep, trip_span_start, stop_dep_relative, headway):
     note: before calling this function you'd probably want to check that
         dep < trip_span_end
     """
-    next_train = (dep - trip_span_start - stop_dep_relative)/headway
-    next_train = math.ceil(next_train)
-    next_train_time = trip_span_start + stop_dep_relative + (headway * next_train)
-    return next_train_time
+    if not dep < span.last_dep:
+        return None
+    next_train_idx = math.ceil((dep - span.start)/span.period)
+    next_train_time = span.start + (next_train_idx * span.period)
+    return max(span.start, next_train_time)
 
 
-def n_vehicles(freq):
-    """number of departing vehicles for a frequency"""
-    return math.floor((freq['end'] - freq['start'])/freq['period']) + 1
+def n_vehicles(start, end, period):
+    """number of departing vehicles for a frequency span.
+    this assumes the span end is not a departure time"""
+    return math.floor((end - start)/period) + 1
 
 
-def transfer_possible(freqs_from, freqs_to, wait_time=0, transfer_time=0):
+def transfer_possible(spans_from, spans_to, transfer_time=0):
     """whether or not a transfer is possible
     from trip A to trip B, according to their
     frequencies.
@@ -174,6 +182,6 @@ def transfer_possible(freqs_from, freqs_to, wait_time=0, transfer_time=0):
     NOTE: assuming that the `end` in a trip frequency span
     is NOT the last departure
     """
-    first_arrival = min(f['start'] - wait_time for f in freqs_from)
-    last_departure = max(((n_vehicles(f) - 1) * f['period']) + f['start'] for f in freqs_to)
+    first_arrival = min(s.start - s.wait for s in spans_from)
+    last_departure = max(s.last_dep for s in spans_to)
     return last_departure > first_arrival + transfer_time

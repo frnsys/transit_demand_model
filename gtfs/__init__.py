@@ -75,15 +75,16 @@ class Transit:
         stop_coords = self.stops[['stop_lat', 'stop_lon']].values
         self._kdtree = KDTree(stop_coords)
 
-        if os.path.exists(save_path):
-            logger.info('Loading existing trip data and network...')
-            self._load(save_path)
-        else:
-            logger.info('No existing trip network, computing new one')
-            self.trip_network = self._compute_trip_network(closest_indirect_transfers)
+        # if os.path.exists(save_path):
+        #     logger.info('Loading existing trip data and network...')
+        #     self._load(save_path)
+        # else:
+        #     logger.info('No existing trip network, computing new one')
+        #     self.trip_network = self._compute_trip_network(closest_indirect_transfers)
 
-            logger.info('Saving trip network...')
-            self._save(save_path)
+        #     logger.info('Saving trip network...')
+        #     self._save(save_path)
+        self.trip_network = self._compute_trip_network(closest_indirect_transfers)
 
         logger.info('Done')
 
@@ -166,6 +167,7 @@ class Transit:
             for stop_iid, spans in stop_spans:
                 self.stops_spans[stop_iid][trip_id].append(spans)
 
+        # TODO how will this be used now?
         # many trips have the same sequence of stops,
         # they just depart at different times.
         # this leads to a lot of redundancy in routing.
@@ -190,12 +192,14 @@ class Transit:
             # the stop sequence graph from a trip_id
             trips_to_stop_seq[trip_id] = stop_seq_id
 
+            # TODO dont think this is necssary anymore?
             self.schedule[trip_id] = {}
             for r in stops.itertuples():
                 self.schedule[trip_id][r.stop_id] = {
                     'arr': r.arr_sec,
                     'dep': r.dep_sec
                 }
+        self.trips_to_stop_seq = trips_to_stop_seq
 
         timetable['stop_seq_id'] = timetable.apply(lambda row: trips_to_stop_seq[row.trip_id], axis=1)
 
@@ -238,8 +242,7 @@ class Transit:
         self.trips_to_transfer_stops = defaultdict(set)
 
         # direct transfers (i.e. at the same stop)
-        # (multiprocessing here does not
-        # add much of an increase in speed)
+        # (multiprocessing here does not add much of an increase in speed)
         logger.info('Parsing direct transfers...')
         for edges in tqdm(starmap(self._process_direct_transfers, to_process), total=len(to_process)):
             for frm, to, transfer_wait_time in edges:
@@ -374,9 +377,11 @@ class Transit:
                     wait_time = (self._get_dep_sec(*to) - frm_arr_time)
                     yield frm, to, max(wait_time, transfer_time)
 
+    # TODO replace this
     def _get_dep_sec(self, trip_id, stop_id):
         return self.schedule[trip_id][stop_id]['dep']
 
+    # TODO replace this
     def _get_arr_sec(self, trip_id, stop_id):
         return self.schedule[trip_id][stop_id]['arr']
 
