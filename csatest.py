@@ -6,11 +6,12 @@ from time import time as TIME
 from gtfs.calendar import Calendar
 from scipy.spatial import KDTree
 import numpy as np
-from csa import csa
+from csa import csa, Connection
 
 TripStop = namedtuple('TripStop', ['stop_id', 'rel_arr', 'rel_dep'])
 StopSpan = namedtuple('StopSpan', ['arr', 'dep'])
-Connection = namedtuple('Connection', ['dep_time', 'dep_stop', 'arr_time', 'arr_stop', 'trip_id'])
+
+Footpath = namedtuple('Footpath', ['dep_stop', 'arr_stop', 'time'])
 
 def get_connections(trip_id, spans, trip_stops):
     """given a set of spans for a trip,
@@ -68,33 +69,10 @@ timetable['arr_sec'], timetable['dep_sec'] = zip(*changes)
 # has stops in the correct order
 trip_stops = timetable.sort_values('stop_sequence').groupby('trip_id')
 
-# compute stop sequence hashes to identify equivalent trips
-# print('computing stop sequence hashes')
-# stop_seq_ids_to_stop_seqs = {}
-# trips_to_stop_seq = {}
-# for trip_id, stops in tqdm(trip_stops):
-#     # generate an id for this stop sequence
-#     stop_seq = stops['stop_id'].values.tolist()
-#     stop_seq_id = '_'.join(map(str, stop_seq)).encode('utf8')
-#     stop_seq_id = hashlib.md5(stop_seq_id).hexdigest()
-#     stop_seq_ids_to_stop_seqs[stop_seq_id] = stop_seq
-
-#     # reverse lookup so we can get
-#     # the stop sequence graph from a trip_id
-#     trips_to_stop_seq[trip_id] = stop_seq_id
-
-# # group trips by stop seq and use (stop_seq, stop) nodes
-# # this goes from 4705 trips to 791 stop seqs
-# # this is b/c trips with equivalent stop sequences
-# # are the same trip, just represented for different service days
-# stop_seqs = defaultdict(list)
-# for trip_id, stop_seq in trips_to_stop_seq.items():
-#     stop_seqs[stop_seq].append(trip_id)
-
-calendar = Calendar(gtfs)
 
 # reduce connections to only those for this day
 from datetime import datetime
+calendar = Calendar(gtfs)
 valid_trips = calendar.trips_for_day(datetime.now())
 
 # merge trip frequency entries where possible
@@ -141,41 +119,26 @@ def closest_stops(coord, n=5):
 
 
 
-# closest = 5
-# print('indirect transfers')
-# for stop in tqdm(gtfs['stops'].itertuples(), total=len(gtfs['stops'])):
-#     coord = stop.stop_lat, stop.stop_lon
+closest = 5
+print('footpaths')
+footpaths = {}
+for stop in tqdm(gtfs['stops'].itertuples(), total=len(gtfs['stops'])):
+    coord = stop.stop_lat, stop.stop_lon
 
-#     # get closest stops to this one
-#     neighbors = closest_stops(coord, n=closest+1)
+    # get closest stops to this one
+    neighbors = closest_stops(coord, n=closest+1)
 
-#     # skip the first, it's the stop itself
-#     neighbors = neighbors[1:]
+    # skip the first, it's the stop itself
+    neighbors = neighbors[1:]
 
-#     # filter out long transfers
-#     neighbors = [n for n in neighbors if n[1] <= footpath_delta_max]
+    # filter out long transfers
+    neighbors = [n for n in neighbors if n[1] <= footpath_delta_max]
 
-#     # for each stop sequence departing from this stop
-#     stop_seqs = stops_spans[stop.stop_id]
-#     for stop_seq, trips_spans in stop_seqs.items():
-#         spans = sum(trips_spans.values(), [])
-#         frm = (stop_seq, stop.stop_id)
+    footpaths[stop.stop_id] = [
+        Footpath(dep_stop=stop.stop_id, arr_stop=stop_id, time=transfer_time)
+        for stop_id, transfer_time in neighbors]
 
-#         # compare to stop sequences departing from neighbor stops
-#         for stop_id, transfer_time in neighbors:
-#             stop_seqs_ = stops_spans[stop_id]
-#             transfer_time = max(BASE_TRANSFER_TIME, transfer_time)
-
-#             for stop_seq_, trips_spans_ in stop_seqs_.items():
-#                 spans_ = sum(trips_spans_.values(), [])
-#                 if stop_seq == stop_seq_ \
-#                     or not stop_seqs_to_service_days[stop_seq] & stop_seqs_to_service_days[stop_seq_] \
-#                     or not util.transfer_possible(spans, spans_, transfer_time=transfer_time):
-#                     continue
-#                 to = (stop_seq_, stop_id)
-#                 # G.add_edge(frm, to, time=transfer_time)
-#                 span = StopSpan(arr=1, dep=1)
-#                 all_connections.append(span)
+print('preprocessing:', TIME() - s)
 
 
 s = TIME()
@@ -186,7 +149,7 @@ print(len(all_connections))
 
 s = TIME()
 dep_time = 16000
-route = csa(all_connections, '00110998801965', '00101153700105', dep_time)
+route = csa(all_connections, footpaths, '00110998801965', '00101153700105', dep_time)
 print(route)
 print(TIME() - s)
 
