@@ -198,49 +198,9 @@ for stop_seq, stop_ids in stop_seqs_to_transfer_stops.items():
 
 
 import numpy as np
-def next_soonest_vehicle(dep, mat):
-    starts = mat[:,0]
-    periods = mat[:,1]
-    next_train_idxs = np.maximum(0, np.ceil((dep - starts)/periods))
-    next_train_times = starts + (next_train_idxs * periods)
-    next_train_times[mat[:,2] >= dep] = np.inf
-    idx = np.argmin(next_train_times)
-    return idx, next_train_times[idx]
-
-
-# @profile
-# def weight(cur_time, valid_stops_spans_mats, v, u, e, d):
-#     frm_stop_seq, frm_stop = v
-#     to_stop_seq, to_stop = u
-
-#     # continuing on the same trip,
-#     # just need transit time between these stops
-#     if frm_stop_seq == to_stop_seq:
-#         return None, e['time']
-
-#     # else, transferring
-#     transfer_time = e.get('time', BASE_TRANSFER_TIME)
-
-#     # note that d is the distance to the node v.
-#     # current time, including transfer time and transit time
-#     time = cur_time + d + transfer_time
-
-#     # find soonest-departing trip
-#     trips_spans_mat = valid_stops_spans_mats[to_stop][to_stop_seq]
-#     # TODO translate returned arr idx to trip id
-#     try:
-#         trip_id, dep_time = next_soonest_vehicle(time, trips_spans_mat)
-#     except IndexError:
-#         return None, float('inf')
-
-#     # total travel time
-#     transfer_time = dep_time - (time - transfer_time)
-#     return trip_id, transfer_time
-
-
 from itertools import count
 from heapq import heappush, heappop
-@profile
+# @profile
 def dijkstra(G, sources, target, weight):
     push = heappush
     pop = heappop
@@ -309,14 +269,18 @@ for stop_id, stop_seqs in stops_spans.items():
 
 from functools import partial
 
+import random
 cur_time = 28800 # 8AM
-s = TIME()
 wfn = partial(weight, cur_time, valid_stops_spans_mats)
-start = ('a45bed228cbd8a5d4312619194d03207', '00100153600230')
-target = ('28ff8d521882e74f87c3cd1ca7d5e154', '00112885800062')
-dist, path = dijkstra(G, {start}, target, wfn)
-print(path)
-print(dist)
-print('routing:', TIME() - s)
+for _ in range(10):
+    s = TIME()
+    # start = ('a45bed228cbd8a5d4312619194d03207', '00100153600230')
+    # target = ('28ff8d521882e74f87c3cd1ca7d5e154', '00112885800062')
+    start = random.choice(list(G.nodes()))
+    target = random.choice(list(G.nodes()))
+    dist, path = dijkstra(G, {start}, target, wfn)
+    print(path)
+    print(dist)
+    print('routing:', TIME() - s)
 
-# import ipdb; ipdb.set_trace()
+import ipdb; ipdb.set_trace()
