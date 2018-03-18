@@ -1,6 +1,8 @@
 from collections import defaultdict, namedtuple
 
-Connection = namedtuple('Connection', ['dep_time', 'dep_stop', 'arr_time', 'arr_stop'])
+Connection = namedtuple('Connection', ['dep_time', 'dep_stop', 'arr_time', 'arr_stop', 'trip_id'])
+
+BASE_TRANSFER_TIME = 120
 
 def binary_search(cons, dep_time):
     lo, hi = 0, len(cons)
@@ -27,22 +29,19 @@ def csa(connections, start, end, dep_time):
     earliest_arrivals = defaultdict(lambda: float('inf'))
     earliest_arrivals[start] = dep_time
 
-    earliest = float('inf')
-
-    # binary search seems slower
+    # binary search seems slower?
+    # could have to do with the slice operation?
     # start_idx = binary_search(connections, dep_time)
     # for c in connections[start_idx:]:
     for c in connections:
         # skip connections departing before our departure time
         if c.dep_time < dep_time: continue
-        if is_reachable(c, earliest_arrivals):
+        ok = c.dep_stop == start
+        in_con = stop_incoming.get(c.dep_stop)
+        if (ok or connects(in_con, c)) and is_reachable(c, earliest_arrivals):
             earliest_arrivals[c.arr_stop] = c.arr_time
             stop_incoming[c.arr_stop] = c
-            if c.arr_stop == end:
-                earliest = min(earliest, c.arr_time)
-        elif c.arr_time > earliest:
-            print('EARLIEST:', earliest)
-            print('EARLIESTARR:', earliest_arrivals[end])
+        elif c.arr_time > earliest_arrivals[end]:
             break
 
     # build route
@@ -52,6 +51,12 @@ def csa(connections, start, end, dep_time):
         route.append(c)
         c = stop_incoming[c.dep_stop]
     return list(reversed(route))
+
+
+def connects(in_con, out_con):
+    return in_con is not None and \
+        (in_con.trip_id == out_con.trip_id \
+        or in_con.arr_time <= out_con.dep_time - BASE_TRANSFER_TIME)
 
 
 def is_reachable(c, earliest_arrivals):

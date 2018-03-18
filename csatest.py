@@ -10,7 +10,7 @@ from csa import csa
 
 TripStop = namedtuple('TripStop', ['stop_id', 'rel_arr', 'rel_dep'])
 StopSpan = namedtuple('StopSpan', ['arr', 'dep'])
-Connection = namedtuple('Connection', ['dep_time', 'dep_stop', 'arr_time', 'arr_stop'])
+Connection = namedtuple('Connection', ['dep_time', 'dep_stop', 'arr_time', 'arr_stop', 'trip_id'])
 
 def get_connections(trip_id, spans, trip_stops):
     """given a set of spans for a trip,
@@ -38,7 +38,7 @@ def get_connections(trip_id, spans, trip_stops):
 
         stop_spans = []
         for start in starts:
-            stop_spans.append(Connection(arr_time=arr+start, dep_time=dep+start, arr_stop=arr_stop.stop_id, dep_stop=dep_stop.stop_id))
+            stop_spans.append(Connection(arr_time=arr+start, dep_time=dep+start, arr_stop=arr_stop.stop_id, dep_stop=dep_stop.stop_id, trip_id=trip_id))
         # stops_spans.append((stop.stop_id, stop_spans))
         stops_spans.append((None, stop_spans))
     return trip_sched, stops_spans
@@ -187,6 +187,7 @@ print(len(all_connections))
 s = TIME()
 dep_time = 16000
 route = csa(all_connections, '00110998801965', '00101153700105', dep_time)
+print(route)
 print(TIME() - s)
 
 
