@@ -9,13 +9,12 @@ ctypedef enum ConnectionType:
     empty, trip, foot
 
 ctypedef struct Connection:
-    unsigned int id
-    double dep_time
     Stop dep_stop
-    double arr_time
+    double dep_time
     Stop arr_stop
-    unsigned int trip_id
+    double arr_time
     ConnectionType type
+    int trip_id
 
 ctypedef struct Footpath:
     Stop dep_stop
@@ -26,73 +25,93 @@ cdef double BASE_TRANSFER_TIME = 120
 
 cdef class CSA:
     cdef:
-        map[Stop, vector[Footpath]] footpaths
-        vector[Connection] connections
         int max_stop
+        Connection no_connection
+        vector[Connection] connections
+        vector[vector[Footpath]] footpaths
 
     def __init__(self, list connections, dict footpaths):
-        # TODO assumes that connections is sorted by dep time, ascending
+        # NOTE: this assumes that connections is sorted by dep time, ascending
         self.max_stop = 0
+        self.connections.reserve(len(connections))
         for i, con in enumerate(connections):
             if con['dep_stop'] > self.max_stop:
                 self.max_stop = con['dep_stop']
             if con['arr_stop'] > self.max_stop:
                 self.max_stop = con['arr_stop']
             con['type'] = ConnectionType.trip
-            con['id'] = i
             self.connections.push_back(con)
 
+        self.footpaths.reserve(len(footpaths))
         for stop, fps in footpaths.items():
-            [self.footpaths[stop].push_back(fp) for fp in fps]
+            self.footpaths[stop] = fps
 
-    # def n_connections(self):
-    #     return self.connections.size()
+        self.no_connection.type = ConnectionType.empty
+
+    @property
+    def n_connections(self):
+        return self.connections.size()
 
     cpdef route(self, unsigned int start, unsigned int end, double dep_time):
         cdef:
             int in_idx
             Connection c
-            vector[int] in_connection
-            vector[double] earliest_arrival
+            vector[Connection] in_connections
+            vector[double] earliest_arrivals
             double earliest = INFINITY
             list route = []
-            Connection dummy
-
-        dummy.type = ConnectionType.empty
 
         # initialize vectors
-        in_connection.assign(self.max_stop, -1)
-        earliest_arrival.assign(self.max_stop, INFINITY)
-        earliest_arrival[start] = dep_time
+        in_connections.assign(self.max_stop, self.no_connection)
+        earliest_arrivals.assign(self.max_stop, INFINITY)
+        earliest_arrivals[start] = dep_time
 
         for c in self.connections:
             # skip connections departing before our departure time
             if c.dep_time < dep_time: continue
 
-            in_idx = in_connection[c.dep_stop]
-            in_con = dummy if in_idx < 0 else self.connections[in_idx]
-            if is_reachable(c, start, earliest_arrival[c.dep_stop], in_con) and c.arr_time < earliest_arrival[c.arr_stop]:
-                in_connection[c.arr_stop] = c.id
-                earliest_arrival[c.arr_stop] = c.arr_time
-                # expand_footpaths(c, footpaths, stop_incoming)
+            if is_reachable(c, start, earliest_arrivals[c.dep_stop], in_connections[c.dep_stop]) and c.arr_time < earliest_arrivals[c.arr_stop]:
+                in_connections[c.arr_stop] = c
+                earliest_arrivals[c.arr_stop] = c.arr_time
+                expand_footpaths(c, self.footpaths[c.arr_stop], in_connections)
                 if c.arr_stop == end:
                     earliest = min(earliest, c.arr_time)
             elif c.arr_time > earliest:
                 break
 
-        c = self.connections[in_connection[end]]
+        c = in_connections[end]
         while c.dep_stop != start:
             route.append(c)
-            c = self.connections[in_connection[c.dep_stop]]
+            c = in_connections[c.dep_stop]
 
         # return route reversed (i.e. in proper order)
         return route[::-1]
-        # return reversed(route) # TODO does this work?
-        # return in_connection
+
+
+cdef expand_footpaths(Connection c, vector[Footpath] footpaths, vector[Connection] in_connections):
+    # scan outgoing footpaths from the arrival stop
+    # note: path.dep_stop == con.arr_stop
+    cdef:
+        Footpath path
+        Connection best_con
+    for path in footpaths:
+        # find existing best connection coming into the footpath's arrival stop
+        # to see if this footpath gets there faster than it
+        best_con = in_connections[path.arr_stop]
+        if best_con.type == ConnectionType.empty or c.arr_time + path.time < best_con.arr_time:
+            in_connections[path.arr_stop] = Connection(
+                dep_stop=path.dep_stop,
+                arr_stop=path.arr_stop,
+                dep_time=c.arr_time,
+                arr_time=c.arr_time + path.time,
+                trip_id=-1,
+                type=ConnectionType.foot
+            )
 
 
 cdef bool is_reachable(Connection c, unsigned int start, double earliest_arrival, Connection in_con):
     return c.dep_time >= earliest_arrival and (c.dep_stop == start or connects(in_con, c))
+
 
 cdef bool connects(Connection in_con, Connection c):
     if in_con.type == ConnectionType.trip:
@@ -101,23 +120,3 @@ cdef bool connects(Connection in_con, Connection c):
     elif in_con.type == ConnectionType.foot:
         return in_con.arr_time <= c.dep_time
     return False
-
-
-# def expand_footpaths(con, footpaths, stop_incoming):
-#     # scan outgoing footpaths from the arrival stop
-#     # note: path.dep_stop == con.arr_stop
-#     paths = footpaths[con.arr_stop]
-#     for path in paths:
-#         # find existing best connection coming into the footpath's arrival stop
-#         # to see if this footpath gets there faster than it
-#         best = stop_incoming.get(path.arr_stop)
-#         if best is None or con.arr_time + path.time < best.arr_time:
-#             stop_incoming[path.arr_stop] = FootConnection(
-#                 dep_stop=path.dep_stop,
-#                 arr_stop=path.arr_stop,
-#                 dep_time=con.arr_time,
-#                 arr_time=con.arr_time + path.time
-#             )
-
-
-
