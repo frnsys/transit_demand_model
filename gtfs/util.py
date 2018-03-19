@@ -10,6 +10,7 @@ import math
 import zipfile
 import pandas as pd
 from io import StringIO
+from datetime import timedelta
 
 
 def load_gtfs(path):
@@ -47,3 +48,7 @@ def gtfs_time_to_secs(time):
 
 def time_to_secs(time):
     return (time.hour * 60 + time.minute) * 60 + time.second
+
+
+def secs_to_gtfs_time(secs):
+    return str(timedelta(seconds=int(secs)))

@@ -1,6 +1,6 @@
 import enum
 import pandas as pd
-from datetime import timedelta
+from collections import defaultdict
 
 
 class ServiceChange(enum.Enum):
@@ -20,19 +20,22 @@ class Weekday(enum.Enum):
 
 
 class Calendar:
-    def __init__(self, gtfs, trip_iids):
+    def __init__(self, gtfs):
         """parse calendar data for service days/changes/exceptions"""
         # associate services with their operating weekdays
         # NOTE this data provies start and end dates for services
         # but for our simulation we are treating this timetable as ongoing
         calendar = gtfs['calendar']
-        service_days = {day: [] for day in Weekday}
+        day_services = {day: [] for day in Weekday}
+        service_days = defaultdict(set)
         for i, row in calendar.iterrows():
             service_id = row.service_id
-            for day, services in service_days.items():
+            for day, services in day_services.items():
                 if row[day.name.lower()] == 1:
                     services.append(service_id)
-        self.service_days = service_days
+                    service_days[service_id].add(day)
+        self.day_services = day_services
+        self.service_days = dict(service_days)
 
         # parse 'date' column as date objects
         # then group by date, so we can quickly query
@@ -43,7 +46,7 @@ class Calendar:
 
         # map service_id->[trip_ids]
         self.services = {
-            name: [trip_iids[trip_id] for trip_id in group['trip_id'].values]
+            name: group['trip_id'].values
             for name, group in gtfs['trips'].groupby('service_id')}
 
     def services_for_dt(self, dt):
@@ -55,7 +58,7 @@ class Calendar:
 
          # get list of service ids as a copy
          # so we can add/remove according to service changes
-         services = self.service_days[weekday][:]
+         services = self.day_services[weekday][:]
 
          # check if there are any service changes for the date
          for service_id, change in self.service_changes_for_dt(dt).items():
@@ -87,6 +90,5 @@ class Calendar:
          return trips
 
     def trips_for_day(self, dt):
-        """returns trip ids operating for a day (and a day after, for trips that cross days)"""
-        service_ids = set(self.services_for_dt(dt)) | set(self.services_for_dt(dt + timedelta(days=1)))
-        return self.trips_for_services(service_ids)
+        """returns trip ids operating for a day"""
+        return self.trips_for_services(self.services_for_dt(dt))
