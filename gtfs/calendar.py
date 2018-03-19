@@ -20,7 +20,6 @@ class Weekday(enum.Enum):
 
 
 class Calendar:
-    # def __init__(self, gtfs, trip_iids):
     def __init__(self, gtfs):
         """parse calendar data for service days/changes/exceptions"""
         # associate services with their operating weekdays
@@ -47,7 +46,6 @@ class Calendar:
 
         # map service_id->[trip_ids]
         self.services = {
-            # name: [trip_iids[trip_id] for trip_id in group['trip_id'].values]
             name: group['trip_id'].values
             for name, group in gtfs['trips'].groupby('service_id')}
 

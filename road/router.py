@@ -1,6 +1,6 @@
 import networkx as nx
 
-SPEED_FACTOR = 2
+SPEED_FACTOR = 2 # NOTE this needs to be calibrated to the public transit schedule as well
 
 
 class Router():

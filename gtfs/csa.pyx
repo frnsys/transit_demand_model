@@ -29,22 +29,23 @@ cdef double BASE_TRANSFER_TIME = 120
 
 cdef class CSA:
     cdef:
-        int max_stop
+        int n_stops
         Connection no_connection
         vector[Connection] connections
         vector[vector[Footpath]] footpaths
 
     def __init__(self, list connections, dict footpaths):
         # NOTE: this assumes that connections is sorted by dep time, ascending
-        self.max_stop = 0
+        self.n_stops = 0
         self.connections.reserve(len(connections))
         for i, con in enumerate(connections):
-            if con['dep_stop'] > self.max_stop:
-                self.max_stop = con['dep_stop']
-            if con['arr_stop'] > self.max_stop:
-                self.max_stop = con['arr_stop']
+            if con['dep_stop'] > self.n_stops:
+                self.n_stops = con['dep_stop']
+            if con['arr_stop'] > self.n_stops:
+                self.n_stops = con['arr_stop']
             con['type'] = ConnectionType.trip
             self.connections.push_back(con)
+        self.n_stops += 1
 
         self.footpaths.reserve(len(footpaths))
         for stop, fps in footpaths.items():
@@ -65,8 +66,8 @@ cdef class CSA:
             double earliest = INFINITY
 
         # initialize vectors
-        in_connections.assign(self.max_stop, self.no_connection)
-        earliest_arrivals.assign(self.max_stop, INFINITY)
+        in_connections.assign(self.n_stops, self.no_connection)
+        earliest_arrivals.assign(self.n_stops, INFINITY)
         earliest_arrivals[start] = dep_time
 
         for c in self.connections:
@@ -87,7 +88,12 @@ cdef class CSA:
             elif c.arr_time > earliest:
                 break
 
-        return build_route(start, end, in_connections)
+        if earliest_arrivals[end] == INFINITY:
+            return None, None
+
+        # build route and return (route, travel time)
+        route = build_route(start, end, in_connections)
+        return route, route[-1]['arr_time'] - dep_time
 
 
 cdef build_route(unsigned int start, unsigned int end, vector[Connection] in_connections):
