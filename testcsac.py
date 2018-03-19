@@ -1,4 +1,3 @@
-# import hashlib
 from gtfs import util
 from collections import defaultdict, namedtuple
 from tqdm import tqdm
@@ -6,7 +5,7 @@ from time import time as TIME
 from gtfs.calendar import Calendar
 from scipy.spatial import KDTree
 import numpy as np
-from csa import csa, Connection
+from csa import Connection
 
 TripStop = namedtuple('TripStop', ['stop_id', 'rel_arr', 'rel_dep'])
 StopSpan = namedtuple('StopSpan', ['arr', 'dep'])
@@ -39,24 +38,25 @@ def get_connections(trip_id, spans, trip_stops):
 
         stop_spans = []
         for start in starts:
-            stop_spans.append(Connection(arr_time=arr+start, dep_time=dep+start, arr_stop=arr_stop.stop_id, dep_stop=dep_stop.stop_id, trip_id=trip_id))
+            stop_spans.append(Connection(
+                arr_time=arr+start,
+                dep_time=dep+start,
+                arr_stop=stop_idx.idx[arr_stop.stop_id],
+                dep_stop=stop_idx.idx[dep_stop.stop_id],
+                trip_id=trip_idx.idx[trip_id]))
         # stops_spans.append((stop.stop_id, stop_spans))
         stops_spans.append((None, stop_spans))
     return trip_sched, stops_spans
 
 s = TIME()
 
-BASE_TRANSFER_TIME = 120
-
 gtfs = util.load_gtfs('data/gtfs/gtfs_bhtransit.zip')
-
-# TODO try selecting just metro routes for now
-# import ipdb; ipdb.set_trace()
 
 timetable = gtfs['stop_times']
 
 # convert gtfs time strings to equivalent integer seconds
 # so we can leverage pandas indexing for performance reasons
+print('computing arr/dep secs')
 changes = timetable.apply(
     lambda row: (
         util.gtfs_time_to_secs(row.arrival_time),
@@ -69,6 +69,16 @@ timetable['arr_sec'], timetable['dep_sec'] = zip(*changes)
 # has stops in the correct order
 trip_stops = timetable.sort_values('stop_sequence').groupby('trip_id')
 
+class IntIndex:
+    def __init__(self, ids):
+        self.id = {}
+        self.idx = {}
+        for i, id in enumerate(ids):
+            self.id[i] = id
+            self.idx[id] = i
+
+trip_idx = IntIndex(gtfs['trips']['trip_id'].unique())
+stop_idx = IntIndex(gtfs['stops']['stop_id'].unique())
 
 # reduce connections to only those for this day
 from datetime import datetime
@@ -91,7 +101,8 @@ for trip_id, spans in tqdm(freqs.items()):
         spans,
         trip_stops.get_group(trip_id).itertuples())
     for _, spans in stop_spans:
-        all_connections.extend(spans)
+        # convert to dicts for cython
+        all_connections.extend([s._asdict() for s in spans])
 
 footpath_delta_base = 2*60 # footpath_delta = delta_base + km / speed_kmh
 footpath_speed_kmh = 5 / 3600
@@ -119,7 +130,6 @@ def closest_stops(coord, n=5):
     return times
 
 
-
 closest = 5
 print('footpaths')
 footpaths = {}
@@ -135,24 +145,40 @@ for stop in tqdm(gtfs['stops'].itertuples(), total=len(gtfs['stops'])):
     # filter out long transfers
     neighbors = [n for n in neighbors if n[1] <= footpath_delta_max]
 
-    footpaths[stop.stop_id] = [
-        Footpath(dep_stop=stop.stop_id, arr_stop=stop_id, time=transfer_time)
+    footpaths[stop_idx.idx[stop.stop_id]] = [
+        Footpath(
+            dep_stop=stop_idx.idx[stop.stop_id],
+            arr_stop=stop_idx.idx[stop_id],
+            time=transfer_time)._asdict() # for cython
         for stop_id, transfer_time in neighbors]
 
 print('preprocessing:', TIME() - s)
 
 
 s = TIME()
-all_connections = sorted(all_connections, key=lambda c: c.dep_time)
+# all_connections = sorted(all_connections, key=lambda c: c.dep_time)
+all_connections = sorted(all_connections, key=lambda c: c['dep_time'])
 print('sorted in', TIME() - s)
 
 print(len(all_connections))
 
+from csac import CSA
 s = TIME()
-dep_time = 16000
-route = csa(all_connections, footpaths, '00110998801965', '00101153700105', dep_time)
+csa = CSA(all_connections, footpaths)
+print('loaded class in', TIME() - s)
+# print(csa.max_stop)
+
+s = TIME()
+dep_time = 16000.
+start = stop_idx.idx['00110998801965']
+end = stop_idx.idx['00101153700105']
+print('start:', start)
+print('end:', end)
+route = csa.route(start, end, dep_time)
+# route = csa(all_connections, footpaths, '00110998801965', '00101153700105', dep_time)
 print(route)
 print(TIME() - s)
 
 
 # import ipdb; ipdb.set_trace()
+

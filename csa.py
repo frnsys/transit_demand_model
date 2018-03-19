@@ -37,9 +37,8 @@ def csa(connections, footpaths, start, end, dep_time):
     for c in connections:
         # skip connections departing before our departure time
         if c.dep_time < dep_time: continue
-        ok = c.dep_stop == start
         in_con = stop_incoming.get(c.dep_stop)
-        if (ok or connects(in_con, c)) and is_reachable(c, earliest_arrivals):
+        if is_reachable(c, start, in_con, earliest_arrivals) and improves(c, earliest_arrivals):
             earliest_arrivals[c.arr_stop] = c.arr_time
             stop_incoming[c.arr_stop] = c
             expand_footpaths(c, footpaths, stop_incoming)
@@ -72,20 +71,33 @@ def expand_footpaths(con, footpaths, stop_incoming):
                 arr_time=con.arr_time + path.time
             )
 
+def is_reachable(c, start, in_con, earliest_arrivals):
+    # connection c is reachable if:
+    # (it departs from our starting stop OR the best connection to c's
+    #   departing stop connects to this connection) AND
+    #   it departs at or after our earliest arrival to c's departure stop (that
+    #   is, we arrive to the stop before the connection departs)
+    return c.dep_time >= earliest_arrivals[c.dep_stop] and (c.dep_stop == start or connects(in_con, c))
 
-def connects(in_con, out_con):
+
+def connects(in_con, c):
+    # if we don't have an incoming connection to c, there's no connection
     if in_con is None:
         return False
+
+    # if this is a trip connection, we can reach the trip if either:
+    # - c is on the same trip as the incoming connection
+    # - we can transfer to c in time
     elif isinstance(in_con, Connection):
-        return (in_con.trip_id == out_con.trip_id \
-            or in_con.arr_time <= out_con.dep_time - BASE_TRANSFER_TIME)
+        return (in_con.trip_id == c.trip_id \
+            or in_con.arr_time <= c.dep_time - BASE_TRANSFER_TIME)
+
+    # if this a foot connection, we just have to check
+    # that we arrive before connection c departs
     elif isinstance(in_con, FootConnection):
-        return in_con.arr_time <= out_con.dep_time
+        return in_con.arr_time <= c.dep_time
     raise Exception # shouldn't get here
 
 
-def is_reachable(c, earliest_arrivals):
-    # if departing after our earliest arrival to the departing stop
-    # and arriving before the earliest arrival to the arrival stop
-    return c.dep_time >= earliest_arrivals[c.dep_stop] \
-        and c.arr_time < earliest_arrivals[c.arr_stop]
+def improves(c, earliest_arrivals):
+    return c.arr_time < earliest_arrivals[c.arr_stop]
