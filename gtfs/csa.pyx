@@ -1,3 +1,7 @@
+# TODO: Multicritera CSA (mcCSA)
+# CSA: <http://i11www.iti.kit.edu/extra/publications/dpsw-isftr-13.pdf>
+# Reference implementation: <https://github.com/dbsystel/practical-csa/tree/master/src/main/scala/algorithm>
+
 from libcpp cimport bool
 from libcpp.vector cimport vector
 from libcpp.map cimport map

@@ -1,3 +1,5 @@
+# pure Python implementation, for reference
+
 from collections import defaultdict, namedtuple
 
 Connection = namedtuple('Connection', ['dep_time', 'dep_stop', 'arr_time', 'arr_stop', 'trip_id'])
@@ -5,22 +7,6 @@ FootConnection = namedtuple('FootConnection', ['dep_time', 'dep_stop', 'arr_time
 
 BASE_TRANSFER_TIME = 120
 
-def binary_search(cons, dep_time):
-    lo, hi = 0, len(cons)
-    while lo < hi:
-        mid = (lo+hi)//2
-        cmpval = cons[mid].dep_time - dep_time
-        if cmpval < 0:
-            lo = mid+1
-        elif cmpval > 0:
-            hi = mid
-        else:
-            # b/c there may be duplicate entries,
-            # find the first one
-            while cons[mid-1].dep_time == dep_time:
-                mid -= 1
-            return mid
-    return -1
 
 def csa(connections, footpaths, start, end, dep_time):
     # keep track of earliest incoming connection to a stop
@@ -30,13 +16,11 @@ def csa(connections, footpaths, start, end, dep_time):
     earliest_arrivals = defaultdict(lambda: float('inf'))
     earliest_arrivals[start] = dep_time
 
-    # binary search seems slower?
-    # could have to do with the slice operation?
-    # start_idx = binary_search(connections, dep_time)
-    # for c in connections[start_idx:]:
     for c in connections:
         # skip connections departing before our departure time
+        # tried binary search but ended up slowing things down
         if c.dep_time < dep_time: continue
+
         in_con = stop_incoming.get(c.dep_stop)
         if is_reachable(c, start, in_con, earliest_arrivals) and improves(c, earliest_arrivals):
             earliest_arrivals[c.arr_stop] = c.arr_time
