@@ -1,10 +1,7 @@
 from distutils.core import setup
 from Cython.Build import cythonize
-from Cython.Compiler.Options import get_directive_defaults
-directive_defaults = get_directive_defaults()
-directive_defaults['linetrace'] = True
-directive_defaults['binding'] = True
 
 setup(
-    ext_modules = cythonize('gtfs/next_dep.pyx')
+    # need to use c++ to use libcpp.map
+    ext_modules = cythonize('csac.pyx', language='c++')
 )
