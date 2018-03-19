@@ -5,12 +5,14 @@ from time import time as TIME
 from gtfs.calendar import Calendar
 from scipy.spatial import KDTree
 import numpy as np
-from csa import Connection
 
 TripStop = namedtuple('TripStop', ['stop_id', 'rel_arr', 'rel_dep'])
 StopSpan = namedtuple('StopSpan', ['arr', 'dep'])
 
 Footpath = namedtuple('Footpath', ['dep_stop', 'arr_stop', 'time'])
+
+Connection = namedtuple('Connection', ['dep_time', 'dep_stop', 'arr_time', 'arr_stop', 'trip_id'])
+FootConnection = namedtuple('FootConnection', ['dep_time', 'dep_stop', 'arr_time', 'arr_stop'])
 
 def get_connections(trip_id, spans, trip_stops):
     """given a set of spans for a trip,
@@ -175,10 +177,8 @@ end = stop_idx.idx['00101153700105']
 print('start:', start)
 print('end:', end)
 route = csa.route(start, end, dep_time)
-# route = csa(all_connections, footpaths, '00110998801965', '00101153700105', dep_time)
 print(route)
 print(TIME() - s)
 
 
 # import ipdb; ipdb.set_trace()
-

@@ -73,8 +73,8 @@ trip_stops = timetable.sort_values('stop_sequence').groupby('trip_id')
 # reduce connections to only those for this day
 from datetime import datetime
 calendar = Calendar(gtfs)
-# valid_trips = calendar.trips_for_day(datetime.now())
-valid_trips = calendar.trips_for_day(datetime(month=3,day=18,year=2018,hour=0,minute=0,second=0))
+valid_trips = calendar.trips_for_day(datetime.now())
+# valid_trips = calendar.trips_for_day(datetime(month=3,day=18,year=2018,hour=0,minute=0,second=0))
 
 # merge trip frequency entries where possible
 print('merging and processing trip frequencies')

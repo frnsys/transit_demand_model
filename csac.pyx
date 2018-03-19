@@ -59,7 +59,6 @@ cdef class CSA:
             vector[Connection] in_connections
             vector[double] earliest_arrivals
             double earliest = INFINITY
-            list route = []
 
         # initialize vectors
         in_connections.assign(self.max_stop, self.no_connection)
@@ -70,22 +69,38 @@ cdef class CSA:
             # skip connections departing before our departure time
             if c.dep_time < dep_time: continue
 
-            if is_reachable(c, start, earliest_arrivals[c.dep_stop], in_connections[c.dep_stop]) and c.arr_time < earliest_arrivals[c.arr_stop]:
+            # check if c is reachable given current connections,
+            # and if so, check if it improves current arrival times
+            if is_reachable(c, start, earliest_arrivals[c.dep_stop], in_connections[c.dep_stop]) \
+                and c.arr_time < earliest_arrivals[c.arr_stop]:
                 in_connections[c.arr_stop] = c
                 earliest_arrivals[c.arr_stop] = c.arr_time
                 expand_footpaths(c, self.footpaths[c.arr_stop], in_connections)
                 if c.arr_stop == end:
                     earliest = min(earliest, c.arr_time)
+
+            # if this connection arrives after our best so far, we're done
             elif c.arr_time > earliest:
                 break
 
-        c = in_connections[end]
-        while c.dep_stop != start:
-            route.append(c)
-            c = in_connections[c.dep_stop]
+        return build_route(start, end, in_connections)
 
-        # return route reversed (i.e. in proper order)
-        return route[::-1]
+
+cdef build_route(unsigned int start, unsigned int end, vector[Connection] in_connections):
+    # build out the route to return
+    # consisting of only start, end, and transfer connections
+    cdef:
+        Connection c = in_connections[end]
+        list route = [c]
+
+    while c.dep_stop != start:
+        next_c = in_connections[c.dep_stop]
+        if c.type != next_c.type or c.trip_id != next_c.trip_id:
+            route.append(c)
+        c = next_c
+    route.append(c)
+    # reverse order
+    return route[::-1]
 
 
 cdef expand_footpaths(Connection c, vector[Footpath] footpaths, vector[Connection] in_connections):
@@ -110,13 +125,26 @@ cdef expand_footpaths(Connection c, vector[Footpath] footpaths, vector[Connectio
 
 
 cdef bool is_reachable(Connection c, unsigned int start, double earliest_arrival, Connection in_con):
+    # connection c is reachable if:
+    # (it departs from our starting stop OR the best connection to c's
+    #   departing stop connects to this connection) AND
+    #   it departs at or after our earliest arrival to c's departure stop (that
+    #   is, we arrive to the stop before the connection departs)
     return c.dep_time >= earliest_arrival and (c.dep_stop == start or connects(in_con, c))
 
 
 cdef bool connects(Connection in_con, Connection c):
+    # if this is a trip connection, we can reach the trip if either:
+    # - c is on the same trip as the incoming connection
+    # - we can transfer to c in time
     if in_con.type == ConnectionType.trip:
         return (in_con.trip_id == c.trip_id \
             or in_con.arr_time <= c.dep_time - BASE_TRANSFER_TIME)
+
+    # if this a foot connection, we just have to check
+    # that we arrive before connection c departs
     elif in_con.type == ConnectionType.foot:
         return in_con.arr_time <= c.dep_time
+
+    # if we don't have an incoming connection to c, there's no connection
     return False
