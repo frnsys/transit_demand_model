@@ -1,5 +1,8 @@
 ref
 data
+build
 node_modules
 viz/assets/*.json
 viz/token.js
+*.cpp
+*.so

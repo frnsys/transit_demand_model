@@ -77,11 +77,6 @@ class Transit:
         # has stops in the correct order
         self.trip_stops = timetable.sort_values('stop_sequence').groupby('trip_id')
 
-        # map trip_id->[stops]
-        # sort by stop sequence so we know each trip group
-        # has stops in the correct order
-        self.trip_stops = timetable.sort_values('stop_sequence').groupby('trip_id')
-
         # index the stops timetable so that we can quickly
         # lookup departures for a particular stop_id
         # and sort based on departure time in seconds
@@ -189,10 +184,10 @@ class Transit:
 class TransitRouter:
     def __init__(self, transit, dt):
         self.T = transit
-        valid_trips = self.T.calendar.trips_for_day(dt)
+        self.valid_trips = self.T.calendar.trips_for_day(dt)
 
         # reduce connections to only those for this day
-        connections = [c for c in self.T.connections if self.T.trip_idx.id[c['trip_id']] in valid_trips]
+        connections = [c for c in self.T.connections if self.T.trip_idx.id[c['trip_id']] in self.valid_trips]
 
         # these need to be copied or we get a segfault?
         # TODO look into this
@@ -200,15 +195,15 @@ class TransitRouter:
 
         self.csa = CSA(connections, footpaths_copy)
 
-    def route(self, start_coord, end_coord, dt, closest_stops=3):
+    def route(self, start_coord, end_coord, dep_time, closest_stops=3):
         """compute a trip-level route between
         a start and an end stop for a given datetime"""
         # candidate start and end stops,
         # returned as [(iid, time), ...]
         # NB here we assume people have no preference b/w transit mode,
         # i.e. they are equally likely to choose a bus stop or a subway stop.
-        start_stops = {s: t for s, t in self.T.closest_stops(start_coord, n=closest_stops)}
-        end_stops = {s: t for s, t in self.T.closest_stops(end_coord, n=closest_stops)}
+        start_stops = self.T.closest_stops(start_coord, n=closest_stops)
+        end_stops = self.T.closest_stops(end_coord, n=closest_stops)
         same_stops = set(start_stops.keys()) & set(end_stops.keys())
 
         # if a same stop is in start and end stops,
@@ -218,7 +213,6 @@ class TransitRouter:
             return [TransitLeg(type=MoveType.WALK, time=walk_time)], walk_time
 
         best = (None, np.inf)
-        dep_time = util.time_to_secs(dt.time())
         for (s_stop, s_walk), (e_stop, e_walk) in product(start_stops.items(), end_stops.items()):
             route, time = self.route_stops(s_stop, e_stop, dep_time)
             if route is not None and time < best[1]:

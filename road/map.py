@@ -29,7 +29,7 @@ import logging
 import requests
 import osmnx as ox
 from tqdm import tqdm
-from router import Router
+from .router import Router
 from pyqtree import Index
 from shapely import geometry
 from collections import defaultdict

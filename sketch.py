@@ -1,68 +1,19 @@
 import logging
-from gtfs import Transit, MoveType
-from events import EventQueue
 from datetime import datetime
 from functools import partial
+from gtfs import Transit, MoveType
+from sim import EventQueue, Vehicle
 
 # TODO other mixed-mode routing considerations: driving to public transit?
 
 logging.basicConfig(level=logging.INFO)
-transit = Transit('data/gtfs/gtfs_bhtransit.zip', 'data/transit/bh')
+transit = Transit('data/gtfs/gtfs_bhtransit.zip')
 
 # agents queue at stops to be picked up at
 # this is a map {stop_id->{trip_id->[agents]}}
 from collections import defaultdict
 stops = defaultdict(lambda: defaultdict(list))
 trips = {}
-
-class Vehicle:
-    def __init__(self, trip_iid, sched):
-        self.id = trip_iid
-        self.stop_idx = -1 # the most recently visited stop
-        self.sched = sched
-        self.passengers = defaultdict(list)
-
-    def past_stops(self):
-        idx = self.stop_idx + 1
-        return self.sched.iloc[:idx]['stop_id'].values
-
-    def next(self, time):
-        # TODO if this is a bus, this should
-        # actually go through the road network
-        # to influence/be influenced by traffic.
-        # other route types just follow the schedule directly.
-        # one way to do this is, instead of returning bus.next as the action
-        # return router.next actions, and give the router an `on_arrive` hook
-        # to call bus.next (triggering passenger pickup/dropoff) and then
-        # the router goes again.
-
-        events = []
-        self.stop_idx += 1
-        cur_stop = self.sched.iloc[self.stop_idx]
-
-        # pickup passengers
-        for (end_stop, action) in stops[cur_stop['stop_id']][self.id]:
-            print(self.id, 'Picking up passengers at', cur_stop.stop_id, time)
-            self.passengers[end_stop].append(action)
-            stops[cur_stop['stop_id']][self.id] = []
-
-        # dropoff passengers
-        for action in self.passengers[cur_stop['stop_id']]:
-            print(self.id, 'Dropping off passengers at', cur_stop.stop_id, time)
-            events.extend(action(time))
-            self.passengers[cur_stop['stop_id']] = []
-
-        try:
-            next_stop = self.sched.iloc[self.stop_idx + 1]
-        except IndexError:
-            # trip is done
-            # TODO re-schedule self for next day?
-            # or, schedule next trip in this route
-            # need to remove self from trip list
-            return events
-        time = next_stop['arr_sec'] - cur_stop['dep_sec']
-        events.append((time, self.next))
-        return events
 
 
 def start_atrip(id, path, end, time):
@@ -100,7 +51,6 @@ def start_atrip(id, path, end, time):
 
 if __name__ == '__main__':
     dt = datetime(year=2017, month=2, day=12, hour=8) # sunday
-    dt = datetime(year=2017, month=2, day=13, hour=8)
     from time import time as T
     s = T()
 
@@ -179,9 +129,3 @@ if __name__ == '__main__':
 
     print(T() - s)
     import ipdb; ipdb.set_trace()
-
-"""
-- the time in event = (time, action) is relative time, i.e. `time` seconds later.
-- the time we pass into the actions, i.e. `action(time)` is absolute time, i.e. timestamp
-- absolute time is the time we keep track of as the canonical event system time
-"""

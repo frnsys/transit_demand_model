@@ -92,11 +92,11 @@ cdef class CSA:
             return None, None
 
         # build route and return (route, travel time)
-        route = build_route(start, end, in_connections)
+        cdef list route = build_route(start, end, in_connections)
         return route, route[-1]['arr_time'] - dep_time
 
 
-cdef build_route(unsigned int start, unsigned int end, vector[Connection] in_connections):
+cdef list build_route(unsigned int start, unsigned int end, vector[Connection] in_connections):
     # build out the route to return
     # consisting of only start, end, and transfer connections
     cdef:
