@@ -83,7 +83,7 @@ class Map():
         self.network = G
 
         self._prepare_network()
-        self.router = Router(self.network)
+        self.router = Router(self, self.network)
 
     def to_xy(self, lat, lng):
         return pyproj.transform(geo_proj, self.utm_proj, lng, lat)
@@ -140,6 +140,7 @@ class Map():
         # and impute values where possible
         logger.info('Preparing edges...')
         for e, d in tqdm(self.network.edges.items()):
+            # <https://wiki.openstreetmap.org/wiki/Josm/styles/lane_features>
             lanes = d.get('lanes', 1)
             if isinstance(lanes, str):
                 lanes = int(lanes)
@@ -147,7 +148,11 @@ class Map():
                 # just add up lanes if multiple are listed
                 # TODO not sure if this is appropriate
                 lanes = sum(int(l) for l in lanes)
-            d['lanes'] = lanes
+
+            # sometimes this `lanes` value is set to `-1`,
+            # unclear why. the link above gives some hint that
+            # it's data misentry?
+            d['lanes'] = max(lanes, 1)
 
             # track which edges we need to
             # impute `maxspeed` data for

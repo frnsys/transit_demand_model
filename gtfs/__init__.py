@@ -57,8 +57,8 @@ class Transit:
     def _process_gtfs(self, gtfs):
         logger.info('Processing GTFS data...')
 
-        self.trips = gtfs['trips']
-        self.stops = gtfs['stops']
+        self.trips = gtfs['trips'].set_index('trip_id')
+        self.stops = gtfs['stops'].set_index('stop_id')
         self.route_types = {r.route_id: RouteType(r.route_type) for r in gtfs['routes'].itertuples()}
 
         self.trip_idx = IntIndex(gtfs['trips']['trip_id'].unique())
@@ -88,13 +88,19 @@ class Transit:
         # for resolving/executing trips
         self.timetable = timetable
 
+        # for determining overall trip start/end times
+        self.freqs = gtfs['frequencies'].groupby('trip_id')
+
     def _compute_connections(self, gtfs):
         logger.info('Processing trip frequencies into connections...')
         connections = []
+        trip_starts = {}
         freqs = gtfs['frequencies'].groupby('trip_id')
         for trip_id, spans in tqdm(freqs):
-            cons = self._connections_for_trip(trip_id, spans)
+            cons, starts = self._connections_for_trip(trip_id, spans)
             connections.extend(cons)
+            trip_starts[trip_id] = starts
+        self.trip_starts = trip_starts
 
         # must be sorted by departure time, ascending, for CSA
         return sorted(connections, key=lambda c: c['dep_time'])
@@ -102,6 +108,8 @@ class Transit:
     def _connections_for_trip(self, trip_id, spans):
         trip_stops = list(self.trip_stops.get_group(trip_id).itertuples())
         starts, connections = [], []
+
+        # compute start time of each vehicle
         for span in spans.itertuples():
             start = util.gtfs_time_to_secs(span.start_time)
             end = util.gtfs_time_to_secs(span.end_time)
@@ -127,7 +135,7 @@ class Transit:
                     'dep_stop': self.stop_idx.idx[dep_stop.stop_id],
                     'trip_id': self.trip_idx.idx[trip_id]
                 })
-        return connections
+        return connections, starts
 
     def _compute_footpaths(self, gtfs, closest):
         logger.info('Computing footpaths ({} closest)...'.format(closest))
@@ -159,20 +167,20 @@ class Transit:
         dists, idxs = self._kdtree.query(coord, k=n)
 
         # convert indices to stops
-        stops = self.stops.loc[idxs]
+        stops = self.stops.iloc[idxs]
 
         # compute estimated walking times
         times = [
-            (id, util.walking_time(coord, (lat, lon), footpath_delta_base, footpath_speed_kmh))
-            for id, lat, lon in stops[['stop_id', 'stop_lat', 'stop_lon']].values]
+            (stop.Index, util.walking_time(coord, (stop.stop_lat, stop.stop_lon), footpath_delta_base, footpath_speed_kmh))
+            for stop in stops.itertuples()]
 
         # pair as `(stop_id, time)`
         return times
 
-    def trip_type(self, trip_iid):
+    def trip_type(self, trip_id):
         """return what type of route a trip
         is on, e.g. bus, metro, etc"""
-        route_id = self.trips.iloc[trip_iid]['route_id']
+        route_id = self.trips.loc[trip_id]['route_id']
         return self.route_types[route_id]
 
     def router_for_day(self, dt):

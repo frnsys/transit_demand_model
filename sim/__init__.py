@@ -1,17 +1,17 @@
 import logging
 from .events import EventQueue
 # from .vehicle import Vehicle
-from collections import namedtuple
+from recordclass import recordclass
 
 logger = logging.getLogger(__name__)
 
-Vehicle = namedtuple('Vehicle', ['id', 'stop', 'passengers'])
+Vehicle = recordclass('Vehicle', ['id', 'route', 'passengers', 'current'])
+Passenger = recordclass('Passenger', ['id', 'route'])
 
 class Sim():
-    def __init__(self, map, start_time):
+    def __init__(self, map):
         self.events = EventQueue()
         self.map = map
-        self.start_time = start_time
 
         # for loading/unloading public transit passengers
         self.stops = {}
@@ -22,7 +22,6 @@ class Sim():
         - the time we pass into the actions, i.e. `action(time)` is absolute time, i.e. timestamp
         - absolute time is the time we keep track of as the canonical event system time"""
         logger.info('Processing trips...')
-        time = self.start_time
         next = self.events.pop()
         while next is not None:
             time, action = next
@@ -33,10 +32,8 @@ class Sim():
                 self.events.push((next_time, next_action))
             next = self.events.pop()
 
-    def queue(self, rel_time, action):
-        """queue an event, executing `action`
-        at `rel_time` from the sim start time"""
-        self.events.push((self.start_time + rel_time, action))
+    def queue(self, time, action):
+        self.events.push((time, action))
 
     # TODO
     def export(self):
