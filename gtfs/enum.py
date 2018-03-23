@@ -11,9 +11,3 @@ class RouteType(enum.Enum):
     CABLE     = 5 # street-level cable car
     GONDOLA   = 6 # suspended cable car
     FUNICULAR = 7 # steep incline rail
-
-
-class MoveType(enum.Enum):
-    WALK = 0
-    RIDE = 1
-    TRANSFER = 2

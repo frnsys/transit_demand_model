@@ -442,3 +442,171 @@ cython: 0.0014557838439941406
 
 goal:
 [{'dep_stop': 8065, 'trip_id': 2511, 'arr_time': 17305.0, 'arr_stop': 8068, 'dep_time': 17235.0, 'type': 1}, {'dep_stop': 8054, 'trip_id': 2495, 'arr_time': 18264.0, 'arr_stop': 4569, 'dep_time': 17980.0, 'type': 1}, {'dep_stop': 4579, 'trip_id': 2495, 'arr_time': 18689.0, 'arr_stop': 1354, 'dep_time': 18593.0, 'type': 1}]
+
+---
+
+# lat, lon
+start = (-19.9741332241246, -44.0222417010139)
+end = (-19.971944530036897, -44.022082980148106)
+s_id, _, s_p, s_pt = map.find_closest_edge(start)
+e_id, _, e_p, e_pt = map.find_closest_edge(end)
+s_from, s_to, s_idx = [int(i) for i in s_id.split('_')]
+e_from, e_to, e_idx = [int(i) for i in e_id.split('_')]
+
+s_to -> 181517724kk
+e_from -> 316656169 (-19.9725734, -44.0217701)
+
+# look at edges, compare road names against map
+map.network[s_to]
+!list(map.network[s_to].values())
+
+# see connected nodes
+succs = list(map.network.successors(s_to))
+[1815177277, 2310027911]
+
+# check node positions on map
+map.network.node[1815177277]
+(-19.9746913, -44.022617)
+
+map.network.node[2310027911]
+(-19.9749829, -44.0222145)
+
+# going off the maps, 1815177277 seems the best choice
+succs = list(map.network.successors(1815177277))
+[4748862402, 4676474485, 1815177253]
+
+# wrong direction
+4748862402
+(-19.9749055, -44.0225573)
+
+# looks good
+4676474485
+(-19.9726319, -44.0232614)
+
+# wrong way
+1815177253
+(-19.9749149, -44.0229389)
+
+# using 4676474485
+succs = list(map.network.successors(4676474485))
+[1815177277, 4676479023]
+
+# back to where we came
+1815177277
+
+# looks good
+4676479023
+(-19.9720585, -44.02325)
+
+# using 4676479023
+succs = list(map.network.successors(4676479023))
+# no successors???
+
+!list(map.network.predecessors(e_from))
+[316656052, 316656158]
+
+# tried loading in the graph unsimplified, no diff.
+
+---
+
+edge
+{'maxspeed': 35.80071174377224, 'geometry': <shapely.geometry.linestring.LineString object at 0x7f715c305278>, 'oneway': False, 'leng
+th': 175.88525573245687, 'name': 'Rua Geraldo Vasconcelos', 'highway': 'residential', 'osmid': 221668572, 'occupancy': -1, 'lanes': 1
+, 'capacity': 8.794262786622843}
+
+vehicle
+Vehicle(id='9202  0321001110_ROAD', route=[Leg(frm=78690781, to=3821228023, edge=0, p=0.8027790437522202), Leg(frm=3821228023, to=78690781, edge=0, p=0.21767712625141725)], passengers=[], current={'maxspeed': 35.80071174377224, 'geometry': <shapely.geometry.linestring.LineString object at 0x7f715c305278>, 'oneway': False, 'length': 175.88525573245687, 'name': 'Rua Geraldo Vasconcelos', 'highway': 'residential', 'osmid': 221668572, 'occupancy': -1, 'lanes': 1, 'capacity': 8.794262786622843})
+
+vehicle.route
+[Leg(frm=78690781, to=3821228023, edge=0, p=0.8027790437522202), Leg(frm=3821228023, to=78690781, edge=0, p=0.21767712625141725)]
+
+
+ENTERING 8894811 3501B 0110803308_ROAD
+ENTERING 221668572 9202  0321400814_ROAD
+ENTERING 221668572 9202  0321300713_ROAD
+ENTERING 8894811 3501B 0111400714_ROAD
+ENTERING 8894811 3501B 0111300713_ROAD
+ENTERING 8894811 3501B 0111000910_ROAD
+ENTERING 221668572 9202  0321001110_ROAD
+ENTERING 221668572 9202  0320805208_ROAD
+LEAVING 8894811 3501B 0110803308_ROAD
+LEAVING 8894811 3501B 0110803308_ROAD
+LEAVING 8894811 3501B 0110803308_ROAD
+LEAVING 8894811 3501B 0110803308_ROAD
+LEAVING 8894811 3501B 0110803308_ROAD
+
+original ordering:
+ENTERING 221668572 9202  0321400814_0_ROAD
+ENTERING 8894811 3501B 0111300713_0_ROAD
+ENTERING 221668572 9202  0320805208_0_ROAD
+ENTERING 8894811 3501B 0111400714_0_ROAD
+ENTERING 221668572 9202  0321300713_0_ROAD
+ENTERING 221668572 9202  0321001110_0_ROAD
+ENTERING 8894811 3501B 0110803308_0_ROAD
+ENTERING 8894811 3501B 0111000910_0_ROAD
+LEAVING 221668572 9202  0321400814_0_ROAD
+LEAVING 221668572 9202  0321400814_0_ROAD
+LEAVING 221668572 9202  0321400814_0_ROAD
+ENTERING 221668572 9202  0321400814_0_ROAD
+LEAVING 221668572 9202  0320805208_0_ROAD
+LEAVING 221668572 9202  0320805208_0_ROAD <-
+
+for comparison:
+ENTERING 221668572 9202  0321400814_0_ROAD
+ENTERING 221668572 9202  0320805208_0_ROAD
+ENTERING 221668572 9202  0321300713_0_ROAD
+ENTERING 221668572 9202  0321001110_0_ROAD
+LEAVING 221668572 9202  0321400814_0_ROAD
+LEAVING 221668572 9202  0321400814_0_ROAD
+LEAVING 221668572 9202  0321400814_0_ROAD
+ENTERING 221668572 9202  0321400814_0_ROAD
+LEAVING 221668572 9202  0320805208_0_ROAD
+LEAVING 221668572 9202  0320805208_0_ROAD
+
+ENTERING 8894811 3501B 0111300713_0_ROAD
+ENTERING 8894811 3501B 0111400714_0_ROAD
+ENTERING 8894811 3501B 0110803308_0_ROAD
+ENTERING 8894811 3501B 0111000910_0_ROAD
+
+
+ENTER e 144755785 v 1404A 0520804908_0_ROAD occ 0
+ENTER e 8894811 v 3501B 0110803308_0_ROAD occ 0
+ENTER e 8894811 v 3501B 0111000910_0_ROAD occ 1
+ENTER e 144755785 v 1404A 0521400814_0_ROAD occ 1
+ENTER e 221668572 v 9202  0320805208_0_ROAD occ 0
+ENTER e 8894811 v 3501B 0111400714_0_ROAD occ 2
+ENTER e 8894811 v 3501B 0111300713_0_ROAD occ 3
+ENTER e 144755785 v 1404A 0521300513_0_ROAD occ 2
+ENTER e 221668572 v 9202  0321300713_0_ROAD occ 1
+ENTER e 221668572 v 9202  0321001110_0_ROAD occ 2
+ENTER e 221668572 v 9202  0321400814_0_ROAD occ 3
+ENTER e 144755785 v 1404A 0521001210_0_ROAD occ 3
+LEAVE e 8894811 v 3501B 0110803308_0_ROAD occ 3
+LEAVE e 8894811 v 3501B 0110803308_0_ROAD occ 2
+LEAVE e 8894811 v 3501B 0110803308_0_ROAD occ 1
+LEAVE e 8894811 v 3501B 0110803308_0_ROAD occ 0
+LEAVE e 8894811 v 3501B 0110803308_0_ROAD occ -1
+
+
+ENTER e 8894811 v 3501B 0111300713_0_ROAD occ 1
+ENTER e 221668572 v 9202  0321400814_0_ROAD occ 1
+ENTER e 144755785 v 1404A 0521001210_0_ROAD occ 1
+ENTER e 221668572 v 9202  0320805208_0_ROAD occ 3
+LEAVE e 144755785 v 1404A 0521001210_0_ROAD occ 1
+LEAVE e 144755785 v 1404A 0521001210_0_ROAD occ 0
+ENTER e 144755785 v 1404A 0521001210_0_ROAD occ 1
+LEAVE e 221668572 v 9202  0321400814_0_ROAD occ 0
+LEAVE e 221668572 v 9202  0321400814_0_ROAD occ -1
+
+I think what's happening is this:
+
+- some road events happen immediately next, taking countdown time=0
+- if there are multiple of these events queued, they happen in random order
+- so we might get an ENTER <ROAD> happening in 0 sec and an immediate LEAVE <ROAD> happening after, also in 0sec
+- what could be happening is that they are unordered if they are schedule for the same time, so we execute the LEAVE <ROAD> first, before the ENTER <ROAD>, and thus we get negative occupancy
+
+---
+
+defaultdict(<function Sim.__init__.<locals>.<lambda> at 0x7fbe5bc9c950>, {'00101865205600': defaultdict(<class 'list'>, {'813   0211000110': []}), '00130311900120': defaultdict(<class 'list'>, {'305   0210801108': []}), '00107409200240': defaultdict(<class 'list'>, {'21
+02  0111001010': []}), '00112385400932': defaultdict(<class 'list'>, {'9202  0320805208': []}), '00105567300150': defaultdict(<class 'list'>, {'9412  1320800408': []}), '00112146800351': defaultdict(<class 'list'>, {'3503A 0121300613': []}), '00100980200007': defaultdic
+t(<class 'list'>, {'318   0210800808': []})})

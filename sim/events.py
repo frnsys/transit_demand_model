@@ -32,3 +32,6 @@ class EventQueue():
         event = time, self.actions[key]
         del self.actions[key]
         return event
+
+    def __len__(self):
+        return len(self.heap)

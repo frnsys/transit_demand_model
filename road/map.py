@@ -226,13 +226,20 @@ class Map():
         e.g. 0.5 means halfway along that edge)"""
         pt = self.to_xy(*coord)
         pt = geometry.Point(*pt)
-        bounds = coord[0]-BOUND_RADIUS, coord[1]-BOUND_RADIUS, coord[0]+BOUND_RADIUS, coord[1]+BOUND_RADIUS
 
-        # find closest box
-        matches = self.idx.intersect(bounds)
+        id = None
+        r = BOUND_RADIUS
+        while id is None:
+            bounds = coord[0]-r, coord[1]-r, coord[0]+r, coord[1]+r
 
-        # find closest edge
-        id = min(matches, key=lambda id: self.edges[id]['geometry'].distance(pt))
+            # find closest box
+            matches = self.idx.intersect(bounds)
+
+            # find closest edge
+            if not matches:
+                r *= 2 # expand search area
+                continue
+            id = min(matches, key=lambda id: self.edges[id]['geometry'].distance(pt))
         edge_data = self.edges[id]
 
         # find closest point on closest edge

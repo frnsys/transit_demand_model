@@ -1,4 +1,5 @@
 import numpy as np
+import networkx as nx
 from itertools import count
 from functools import partial
 from heapq import heappush, heappop
@@ -58,22 +59,20 @@ class Router():
             return
 
         leg = path[0]
-        try:
-            edge = self.network[leg.frm][leg.to][leg.edge]
-        except KeyError:
-            import ipdb; ipdb.set_trace()
+        edge = self.network[leg.frm][leg.to][leg.edge]
 
         # where leg.p is the proportion of the edge we travel
         time = edge_travel_time(edge) * leg.p
 
         return leg, edge, time
 
-    def next(self, vehicle, time):
+    def next(self, vehicle, on_arrive, time):
         """compute next event in trip"""
         edge = vehicle.current
         if edge is not None:
             # leave previous edge
             edge['occupancy'] -= 1
+            # print('LEAVE', 'e', edge['osmid'], 'v', vehicle.id, 'occ', edge['occupancy'])
             if edge['occupancy'] < 0:
                 raise Exception('occupancy should be positive')
             vehicle.route.pop(0)
@@ -83,7 +82,9 @@ class Router():
 
         # arrived
         if leg is None:
-            return []
+            # print('ARRIVE', vehicle.id)
+            return on_arrive(time)
+
 
         # TODO replanning can occur here too,
         # e.g. if travel_time exceeds expected travel time
@@ -91,6 +92,7 @@ class Router():
 
         # enter edge
         edge['occupancy'] += 1
+        # print('ENTER', 'e', edge['osmid'], 'v', vehicle.id, 'occ', edge['occupancy'], 'travel_time', travel_time, 'leg', leg)
         if edge['occupancy'] <= 0:
             raise Exception('adding occupant shouldnt make it 0')
 
@@ -102,7 +104,7 @@ class Router():
         # lights/intersections, so should add in some time,
         # but how much?
         # or will it not affect the model much?
-        return [(travel_time, partial(self.next, vehicle))]
+        return [(travel_time, partial(self.next, vehicle, on_arrive))]
 
 
 def edge_weight(u, v, edges):
@@ -117,8 +119,7 @@ def edge_weight(u, v, edges):
 def edge_travel_time(edge):
     """travel time for a traveler entering an edge"""
     # TODO get clarification on these terms and how they're being used here
-    tt = (edge['length'] * ((edge['occupancy'] + 1)/edge['capacity']) * edge['maxspeed'])/SPEED_FACTOR
-    return tt
+    return (edge['length'] * ((edge['occupancy'] + 1)/edge['capacity']) * edge['maxspeed'])/SPEED_FACTOR
 
 
 def segments(start_time, legs, map, step=0.1):
@@ -191,4 +192,7 @@ def dijkstra(G, source, target, weight):
                 if paths is not None:
                     paths[u] = paths[v] + [(u, edge)]
 
-    return paths[target], dist
+    try:
+        return paths[target], dist
+    except KeyError:
+        raise nx.NetworkXNoPath("Node %s not reachable from %s" % (target, source))

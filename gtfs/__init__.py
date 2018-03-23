@@ -7,7 +7,7 @@ from .calendar import Calendar
 from scipy.spatial import KDTree
 from collections import namedtuple
 from itertools import product
-from .enum import MoveType, RouteType
+from .enum import RouteType
 
 logger = logging.getLogger(__name__)
 
@@ -17,7 +17,9 @@ footpath_speed_kmh = 5 / 3600
 footpath_delta_max = 7*60 # all footpaths longer than that are discarded as invalid
 
 
-TransitLeg = namedtuple('TransitLeg', ['dep_stop', 'arr_stop', 'time', 'type'])
+WalkLeg = namedtuple('WalkLeg', ['time'])
+TransitLeg = namedtuple('TransitLeg', ['dep_stop', 'arr_stop', 'dep_time', 'arr_time', 'trip_id'])
+TransferLeg = namedtuple('TransferLeg', ['dep_stop', 'arr_stop', 'time'])
 
 
 class IntIndex:
@@ -25,9 +27,10 @@ class IntIndex:
         self.id = {}
         self.idx = {}
         for i, id in enumerate(ids):
-            self.id[i] = id
-            self.idx[id] = i
+            self.id[i] = id  # to ids
+            self.idx[id] = i # to iids
 
+class NoRouteFound(Exception): pass
 
 
 class Transit:
@@ -210,22 +213,28 @@ class TransitRouter:
         # returned as [(iid, time), ...]
         # NB here we assume people have no preference b/w transit mode,
         # i.e. they are equally likely to choose a bus stop or a subway stop.
-        start_stops = self.T.closest_stops(start_coord, n=closest_stops)
-        end_stops = self.T.closest_stops(end_coord, n=closest_stops)
+        start_stops = dict(self.T.closest_stops(start_coord, n=closest_stops))
+        end_stops = dict(self.T.closest_stops(end_coord, n=closest_stops))
         same_stops = set(start_stops.keys()) & set(end_stops.keys())
 
         # if a same stop is in start and end stops,
         # walking is probably the best option
         if same_stops:
             walk_time = util.walking_time(start_coord, end_coord, footpath_delta_base, footpath_speed_kmh)
-            return [TransitLeg(type=MoveType.WALK, time=walk_time)], walk_time
+            return [WalkLeg(time=walk_time)], walk_time
 
         best = (None, np.inf)
         for (s_stop, s_walk), (e_stop, e_walk) in product(start_stops.items(), end_stops.items()):
             route, time = self.route_stops(s_stop, e_stop, dep_time)
             if route is not None and time < best[1]:
                 best = route, time
-        return best
+        route, time = best
+        if route is None:
+            raise NoRouteFound
+        return [
+            TransitLeg(dep_stop=l['dep_stop'], arr_stop=l['arr_stop'], dep_time=l['dep_time'], arr_time=l['arr_time'], trip_id=l['trip_id']) if l['type'] == 1
+            else TransferLeg(dep_stop=l['dep_stop'], arr_stop=l['arr_stop'], time=l['time'])
+            for l in route], time
 
     def route_stops(self, start_stop, end_stop, dep_time):
         start = self.T.stop_idx.idx[start_stop]
