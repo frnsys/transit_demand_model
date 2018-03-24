@@ -14,6 +14,9 @@ import networkx as nx
 random.seed(0)
 logging.basicConfig(level=logging.INFO)
 
+n_route_hits = 0
+route_hits = set()
+
 def random_point(geo):
     """rejection sample a point within geo shape"""
     minx, miny, maxx, maxy = geo.bounds
@@ -27,26 +30,27 @@ def random_point(geo):
     return point
 
 
+@profile
 def public_transit_next(stops, vehicle, time):
     events = []
     vehicle.current += 1
-    cur_stop = vehicle.route.iloc[vehicle.current]
+    cur_stop = vehicle.route[vehicle.current]
 
     # pickup passengers
     trip_id = vehicle.id.split('_')[0]
     for (end_stop, action) in stops[cur_stop['stop_id']][trip_id]:
-        print(vehicle.id, 'Picking up passengers at', cur_stop.stop_id, time)
+        print(vehicle.id, 'Picking up passengers at', cur_stop['stop_id'], time)
         vehicle.passengers[end_stop].append(action)
         stops[cur_stop['stop_id']][trip_id] = []
 
     # dropoff passengers
     for action in vehicle.passengers[cur_stop['stop_id']]:
-        print(vehicle.id, 'Dropping off passengers at', cur_stop.stop_id, time)
+        print(vehicle.id, 'Dropping off passengers at', cur_stop['stop_id'], time)
         events.extend(action(time))
         vehicle.passengers[cur_stop['stop_id']] = []
 
     try:
-        next_stop = vehicle.route.iloc[vehicle.current + 1]
+        next_stop = vehicle.route[vehicle.current + 1]
     except IndexError:
         # trip is done
         return events
@@ -55,7 +59,9 @@ def public_transit_next(stops, vehicle, time):
     return events
 
 
+@profile
 def on_bus_arrive(stops, transit, router, road_vehicle, transit_vehicle, time):
+    global n_route_hits
     # we have two vehicles:
     # - one which represents the public transit side of the bus
     #   (picking up and dropping off passengers)
@@ -66,18 +72,27 @@ def on_bus_arrive(stops, transit, router, road_vehicle, transit_vehicle, time):
 
     # prepare to depart
     try:
-        cur_stop = transit_vehicle.route.iloc[transit_vehicle.current]
-        next_stop = transit_vehicle.route.iloc[transit_vehicle.current + 1]
+        cur_stop = transit_vehicle.route[transit_vehicle.current]
+        next_stop = transit_vehicle.route[transit_vehicle.current + 1]
         time_to_dep = cur_stop['dep_sec'] - cur_stop['arr_sec']
     except IndexError:
         # trip is done
         return events
 
     # figure out road route
-    start = transit.stops.loc[cur_stop.stop_id][['stop_lat', 'stop_lon']].values
-    end = transit.stops.loc[next_stop.stop_id][['stop_lat', 'stop_lon']].values
+    # start = transit.stops.loc[cur_stop['stop_id']][['stop_lat', 'stop_lon']].values
+    # end = transit.stops.loc[next_stop['stop_id']][['stop_lat', 'stop_lon']].values
+    sid = transit.stop_idx.idx[cur_stop['stop_id']]
+    sid = transit.stops_list[sid]
+    start = sid['stop_lat'], sid['stop_lon']
+    eid = transit.stop_idx.idx[next_stop['stop_id']]
+    eid = transit.stops_list[eid]
+    end = eid['stop_lat'], eid['stop_lon']
     try:
+        if (start, end) in route_hits:
+            n_route_hits += 1
         route = map.router.route(start, end)
+        route_hits.add((start, end))
     except nx.NetworkXNoPath:
         # TODO seems like something is wrong with the map
         # it cant't find a path but there is a relatively
@@ -95,6 +110,7 @@ def on_bus_arrive(stops, transit, router, road_vehicle, transit_vehicle, time):
     return events
 
 
+@profile
 def passenger_next(transit, stops, passenger, time):
     try:
         leg = passenger.route.pop(0)
@@ -148,11 +164,12 @@ if __name__ == '__main__':
     # to the first stop.
     valid_trips = list(router.valid_trips)[:200]
     for trip_id, sched in transit.trip_stops:
+        sched = sched.to_dict('records')
         # TODO temp limit trips for faster runs
         if trip_id not in valid_trips:
         # if trip_id not in router.valid_trips:
             continue
-        first_stop = sched.iloc[0]
+        first_stop = sched[0]
 
         # buses should use roads
         type = transit.trip_type(trip_id)
@@ -201,6 +218,7 @@ if __name__ == '__main__':
 
     print('N EVENTS START', len(sim.events))
     sim.run()
+    print('N ROUTE HITS', n_route_hits)
 
     # TODO
     # for deckgl visualization

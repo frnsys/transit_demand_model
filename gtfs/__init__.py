@@ -62,6 +62,10 @@ class Transit:
 
         self.trips = gtfs['trips'].set_index('trip_id')
         self.stops = gtfs['stops'].set_index('stop_id')
+
+        # TESTING for faster lookups
+        self.stops_list = self.stops.to_dict('records')
+
         self.route_types = {r.route_id: RouteType(r.route_type) for r in gtfs['routes'].itertuples()}
 
         self.trip_idx = IntIndex(gtfs['trips']['trip_id'].unique())

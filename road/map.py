@@ -58,6 +58,7 @@ class Map():
         self.place_meta = lookup_place(place)
         xmin, xmax, ymin, ymax = [float(p) for p in self.place_meta['boundingbox']] # lat lng
         self.bbox = (xmin, ymin, xmax, ymax)
+        self._closest_edge_cache = {}
 
         if os.path.exists(os.path.join(ox.settings.data_folder, self.id)):
             logger.info('Loading existing network')
@@ -218,18 +219,27 @@ class Map():
             self.edges[id] = data
         return idx
 
+    @profile
     def find_closest_edge(self, coord):
         """given a query point, will find
         the closest edge/path in the self to that point,
         as well as the closest point on that edge
         (described as a 0-1 position along that edge,
         e.g. 0.5 means halfway along that edge)"""
+        # TODO note to control size of this,
+        # can limit to pre-computed closest edges for
+        # bus stops, i.e. coords we will use frequently
+        if coord in self._closest_edge_cache:
+            return self._closest_edge_cache[coord]
         pt = self.to_xy(*coord)
         pt = geometry.Point(*pt)
 
         id = None
         r = BOUND_RADIUS
         while id is None:
+            # This seems to be called way too much, which
+            # might indicate that something is wrong with the implementation
+            # or the bound radius is too small
             bounds = coord[0]-r, coord[1]-r, coord[0]+r, coord[1]+r
 
             # find closest box
@@ -246,4 +256,6 @@ class Map():
         line = edge_data['geometry']
         p = line.project(pt, normalized=True)
         pt = line.interpolate(p, normalized=True)
-        return id, edge_data, p, pt
+        res = id, edge_data, p, pt
+        self._closest_edge_cache[coord] = res
+        return res
