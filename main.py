@@ -1,4 +1,4 @@
-# import json
+import json
 import random
 import logging
 import osmnx as ox
@@ -51,15 +51,14 @@ if __name__ == '__main__':
 
     sim.run(agents)
 
-    # TODO
     # for deckgl visualization
-    # data = sim.export()
+    data = sim.export()
 
-    # with open('viz/assets/trips.json', 'w') as f:
-    #     json.dump(data['trips'], f)
+    with open('viz/assets/trips.json', 'w') as f:
+        json.dump(data['trips'], f)
 
-    # with open('viz/assets/coord.json', 'w') as f:
-    #     json.dump(data['place'], f)
+    with open('viz/assets/coord.json', 'w') as f:
+        json.dump(data['place'], f)
 
-    # with open('viz/assets/stops.json', 'w') as f:
-    #     json.dump(data['stops'], f)
+    with open('viz/assets/stops.json', 'w') as f:
+        json.dump(data['stops'], f)

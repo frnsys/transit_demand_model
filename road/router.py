@@ -1,13 +1,11 @@
-import config
 from itertools import count
-from functools import partial
 from heapq import heappush, heappop
-from collections import defaultdict, namedtuple
+from collections import namedtuple
 from .graph import edge_weight, edge_travel_time
 
 # `p` tells us the proportion of the edge we actually travel,
 # e.g. if we start earlier or later along the road
-Leg = namedtuple('Leg', ['frm', 'to', 'edge', 'p'])
+Leg = namedtuple('Leg', ['frm', 'to', 'edge_no', 'p'])
 
 
 class NoRoadRouteFound(Exception): pass
@@ -19,9 +17,6 @@ class Router():
     def __init__(self, roads):
         self.roads = roads
         self.network = roads.network
-
-        # keep track of trips
-        self.trips = defaultdict(list)
 
     def route(self, start, end):
         """compute a road route
@@ -44,61 +39,11 @@ class Router():
 
         # TODO we aren't checking how far `start` and `end`
         # are from `s_pt` and `e_pt`. these should probably be walk actions?
-        route = [Leg(frm=int(edge_s.frm), to=edge_s.to, edge=edge_s.no, p=(1-edge_s.p))]
-        for (u, _), (v, e) in zip(path, path[1:]):
-            route.append(Leg(frm=u, to=v, edge=e, p=1.))
-        route.append(Leg(frm=path[-1][0], to=int(edge_e.to), edge=edge_e.no, p=edge_e.p))
+        route = [Leg(frm=edge_s.frm, to=edge_s.to, edge_no=edge_s.no, p=(1-edge_s.p))]
+        for (u, _), (v, e_no) in zip(path, path[1:]):
+            route.append(Leg(frm=u, to=v, edge_no=e_no, p=1.))
+        route.append(Leg(frm=path[-1][0], to=edge_e.to, edge_no=edge_e.no, p=edge_e.p))
         return route
-
-    def travel(self, path):
-        # last node in path
-        # is destination
-        if len(path) < 2:
-            return
-
-        leg = path[0]
-        edge = self.network[leg.frm][leg.to][leg.edge]
-
-        # where leg.p is the proportion of the edge we travel
-        time = (edge_travel_time(edge)/config.SPEED_FACTOR) * leg.p
-
-        return leg, edge, time
-
-    def next(self, vehicle, on_arrive, time):
-        """compute next event in trip"""
-        edge = vehicle.current
-        if edge is not None:
-            # leave previous edge
-            edge['occupancy'] -= 1
-            if edge['occupancy'] < 0:
-                raise Exception('occupancy should be positive')
-            vehicle.route.pop(0)
-
-        # compute next leg
-        leg = self.travel(vehicle.route)
-
-        # arrived
-        if leg is None:
-            return on_arrive(time)
-
-        # TODO replanning can occur here too,
-        # e.g. if travel_time exceeds expected travel time
-        leg, edge, travel_time = leg
-
-        # enter edge
-        edge['occupancy'] += 1
-        if edge['occupancy'] <= 0:
-            raise Exception('adding occupant shouldnt make it 0')
-
-        vehicle.current = edge
-        self.trips[vehicle.id].append(leg)
-
-        # return next event
-        # TODO this assumes agents don't stop at
-        # lights/intersections, so should add in some time,
-        # but how much?
-        # or will it not affect the model much?
-        return [(travel_time, partial(self.next, vehicle, on_arrive))]
 
 
 def dijkstra(G, source, target, weight):

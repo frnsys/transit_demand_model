@@ -1,10 +1,11 @@
+import config
 import logging
 from .base import Sim
 from tqdm import tqdm
 from functools import partial
 from collections import defaultdict
 from recordclass import recordclass
-from road.router import NoRoadRouteFound
+from road.router import NoRoadRouteFound, edge_travel_time
 from gtfs.router import WalkLeg, TransferLeg, TransitLeg, NoTransitRouteFound
 from gtfs import RouteType
 
@@ -32,6 +33,10 @@ class TransitSim(Sim):
         self.route_cache = {}
         self.cache_routes = cache_routes
 
+        # track (road) vehicle trips,
+        # for exporting (visualization) purposes
+        self.history = defaultdict(list)
+
     def run(self, agents):
         self.queue_public_transit()
         self.queue_agents(agents)
@@ -55,7 +60,7 @@ class TransitSim(Sim):
             else:
                 route = self.roads.route(agent.start, agent.end)
                 veh = Vehicle(id=agent.id, route=route, passengers=[agent.id], current=None)
-                self.queue(agent.dep_time, partial(self.roads.router.next, veh, lambda t: []))
+                self.queue(agent.dep_time, partial(self.road_next, veh, lambda t: []))
 
     def queue_public_transit(self):
         """
@@ -74,7 +79,7 @@ class TransitSim(Sim):
         for trip_id, sched in tqdm(self.transit.trip_stops):
             # faster access as a list of dicts
             sched = sched.to_dict('records')
-            if trip_id not in self.router.valid_trips:
+            if trip_id not in list(self.router.valid_trips)[:200]: # TODO
                 continue
 
             # check the route type;
@@ -94,6 +99,7 @@ class TransitSim(Sim):
                     action = self.transit_next
                 action = partial(action, veh)
                 self.queue(start, action)
+                break # TODO
 
     def transit_next(self, vehicle, time):
         """action for public transit vehicles"""
@@ -174,7 +180,7 @@ class TransitSim(Sim):
         on_arrive = partial(self.on_bus_arrive, road_vehicle, transit_vehicle)
 
         # override last event
-        events[-1] = (time_to_dep, partial(self.roads.router.next, road_vehicle, on_arrive))
+        events[-1] = (time_to_dep, partial(self.road_next, road_vehicle, on_arrive))
         return events
 
 
@@ -186,7 +192,7 @@ class TransitSim(Sim):
             logger.info('[{}] {} Arrived'.format(time, passenger.id))
             return []
 
-        # setup next actoin
+        # setup next action
         action = partial(self.passenger_next, passenger)
 
         if isinstance(leg, WalkLeg):
@@ -213,24 +219,77 @@ class TransitSim(Sim):
             self.stops[dep_stop][trip_id].append((arr_stop, action))
             return []
 
+    def road_travel(self, path):
+        """travel along road route"""
+        # last node in path
+        # is destination
+        if len(path) < 2:
+            return
 
-    # TODO
+        leg = path[0]
+        edge = self.roads.network[leg.frm][leg.to][leg.edge_no]
+
+        # where leg.p is the proportion of the edge we travel
+        travel_time = edge_travel_time(edge['length'], edge['maxspeed'], edge['occupancy'], edge['capacity'])
+        time = (travel_time/config.SPEED_FACTOR) * leg.p
+
+        return leg, edge, time
+
+    def road_next(self, vehicle, on_arrive, time):
+        """compute next event in road trip"""
+        edge = vehicle.current
+        if edge is not None:
+            # leave previous edge
+            edge['occupancy'] -= 1
+            if edge['occupancy'] < 0:
+                raise Exception('occupancy should be positive')
+            vehicle.route.pop(0)
+
+        # compute next leg
+        leg = self.road_travel(vehicle.route)
+
+        # arrived
+        if leg is None:
+            return on_arrive(time)
+
+        # TODO replanning can occur here too,
+        # e.g. if travel_time exceeds expected travel time
+        leg, edge, travel_time = leg
+
+        # enter edge
+        edge['occupancy'] += 1
+        if edge['occupancy'] <= 0:
+            raise Exception('adding occupant shouldnt make it 0')
+
+        vehicle.current = edge
+
+        self.history[vehicle.id].append((time, travel_time, leg))
+
+        # return next event
+        # TODO this assumes agents don't stop at
+        # lights/intersections, so should add in some time,
+        # but how much?
+        # or will it not affect the model much?
+        return [(travel_time, partial(self.road_next, vehicle, on_arrive))]
+
     def export(self):
         """return simulation run data in a form
         easy to export to JSON for visualization"""
+        logger.info('Exporting...')
         trips = []
-        for trip in self.trips.values():
+        for trip in tqdm(self.history.values()):
             trips.append({
                 'vendor': 0,
-                'segments': trip.segments(self.map)
+                'segments': self.roads.segments(trip)
             })
 
-        stops = [s['coord'] for s in self.map.stops.values()]
+        stops = [self.roads.to_latlon(e.pt.x, e.pt.y)
+                 for e in self.roads.stops.values()]
 
         return {
             'place': {
-                'lat': float(self.map.place_meta['lat']),
-                'lng': float(self.map.place_meta['lon'])
+                'lat': float(self.roads.place_meta['lat']),
+                'lng': float(self.roads.place_meta['lon'])
             },
             'trips': trips,
             'stops': stops

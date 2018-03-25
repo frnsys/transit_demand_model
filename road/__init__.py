@@ -28,6 +28,7 @@ import pyproj
 import logging
 import requests
 import osmnx as ox
+import numpy as np
 from tqdm import tqdm
 from .router import Router
 from shapely import geometry
@@ -259,3 +260,34 @@ class Roads():
         start_edge = self.stops[start_stop]
         end_edge = self.stops[end_stop]
         return self.router.route_edges(start_edge, end_edge)
+
+    def segments(self, legs, step=0.1):
+        """break trip into segments, e.g. for visualization purposes"""
+        segs = []
+        last = None
+        for time, travel_time, edge in legs:
+            pts = self.segment_leg(edge.frm, edge.to, edge.edge_no)
+            # TODO coordinate ordering??
+            segs.extend([[lon, lat, time + (p * travel_time)] for (lat, lon), p in pts])
+            if segs:
+                last = segs.pop(-1) # first segment is same as last leg's last segment
+        return segs + [last]
+
+    def segment_leg(self, u, v, edge_no, step=0.1):
+        """segments a leg of a trip
+        (a leg a part of a trip that corresponds to an edge)"""
+        edge = self.network.get_edge_data(u, v, key=edge_no)
+        geo = edge.get('geometry')
+        if geo is None:
+            pt1, pt2 = self.network.nodes[u], self.network.nodes[v]
+            pt1 = np.array([pt1['x'], pt1['y']])
+            pt2 = np.array([pt2['x'], pt2['y']])
+            pts = lerp(pt1, pt2, step=step)
+        else:
+            pts = [(geo.interpolate(p, normalized=True).coords[0], p)
+                for p in np.arange(0, 1+step, step)]
+        return [(self.to_latlon(*pt), p) for pt, p in pts]
+
+
+def lerp(pt1, pt2, step):
+    return [(pt1+p*(pt2-pt1), p) for p in np.arange(0, 1+step, step)]
