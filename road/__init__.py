@@ -22,7 +22,6 @@ edge attributes (may not all be present):
 """
 
 import os
-import json
 import config
 import pyproj
 import logging
@@ -61,9 +60,6 @@ class Roads():
         self.place_meta = lookup_place(place)
         xmin, xmax, ymin, ymax = [float(p) for p in self.place_meta['boundingbox']] # lat lon
         self.bbox = (xmin, ymin, xmax, ymax)
-
-        # cache closest edge lookups
-        self._closest_edge_cache = {}
 
         if os.path.exists(os.path.join(ox.settings.data_folder, self.id)):
             logger.info('Loading existing network')
@@ -110,23 +106,10 @@ class Roads():
         """map public transit stops to road network positions"""
         self.stops = {}
         if self.transit is not None:
-            data = 'data/transit/{}.json'.format(self.id)
-            if os.path.exists(data):
-                logger.info('Loading existing transit stop network positions...')
-                self.stops = json.load(open(data, 'r'))
-            else:
-                logger.info('Inferring transit stop network positions...')
-                for i, r in tqdm(self.transit.stops.iterrows(), total=len(self.transit.stops)):
-                    coord = r.stop_lat, r.stop_lon
-                    edge = self.find_closest_edge(coord)
-                    self.stops[i] = {
-                        'edge_id': edge.id,
-                        'along': edge.p,
-                        'point': (edge.pt.x, edge.pt.y),
-                        'coord': self.to_latlon(edge.pt.x, edge.pt.y)
-                    }
-                with open(data, 'w') as f:
-                    json.dump(self.stops, f)
+            logger.info('Inferring transit stop network positions...')
+            for i, r in tqdm(self.transit.stops.iterrows(), total=len(self.transit.stops)):
+                coord = r.stop_lat, r.stop_lon
+                self.stops[i] = self.find_closest_edge(coord)
 
     def _prepare_network(self):
         """preprocess the network as needed"""
@@ -241,10 +224,6 @@ class Roads():
         as well as the closest point on that edge
         (described as a 0-1 position along that edge,
         e.g. 0.5 means halfway along that edge)"""
-        # caching
-        if coord in self._closest_edge_cache:
-            return self._closest_edge_cache[coord]
-
         pt = self.to_xy(*coord)
         pt = geometry.Point(*pt)
 
@@ -270,9 +249,12 @@ class Roads():
         pt = line.interpolate(p, normalized=True)
         edge = Edge(id=idx, frm=u, to=v, no=edge_no, data=edge_data, p=p, pt=pt)
 
-        # update cache
-        self._closest_edge_cache[coord] = edge
         return edge
 
     def route(self, start, end):
         return self.router.route(start, end)
+
+    def route_bus(self, start_stop, end_stop):
+        start_edge = self.stops[start_stop]
+        end_edge = self.stops[end_stop]
+        return self.router.route_edges(start_edge, end_edge)

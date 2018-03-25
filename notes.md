@@ -610,3 +610,17 @@ I think what's happening is this:
 defaultdict(<function Sim.__init__.<locals>.<lambda> at 0x7fbe5bc9c950>, {'00101865205600': defaultdict(<class 'list'>, {'813   0211000110': []}), '00130311900120': defaultdict(<class 'list'>, {'305   0210801108': []}), '00107409200240': defaultdict(<class 'list'>, {'21
 02  0111001010': []}), '00112385400932': defaultdict(<class 'list'>, {'9202  0320805208': []}), '00105567300150': defaultdict(<class 'list'>, {'9412  1320800408': []}), '00112146800351': defaultdict(<class 'list'>, {'3503A 0121300613': []}), '00100980200007': defaultdic
 t(<class 'list'>, {'318   0210800808': []})})
+
+---
+
+69017it [00:17, 3849.60it/s]
+
+without closest edge caching:
+65852it [00:29, 2232.71it/s]
+slower, but I expect closest edge caching will cause memory issues at some point.
+
+with edge caching just for buses:
+64968it [00:14, 4510.70it/s]
+
+with route caching for buses:
+65767it [00:10, 6412.12it/s]

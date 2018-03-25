@@ -31,7 +31,11 @@ class Router():
         # and the node that the edge comes from (for the end)
         edge_s = self.roads.find_closest_edge(start)
         edge_e = self.roads.find_closest_edge(end)
+        return self.route_edges(edge_s, edge_e)
 
+    def route_edges(self, edge_s, edge_e):
+        """compute a road route between two edges
+        that include 0.-1. positions along the edges"""
         path, dist = dijkstra(self.network, edge_s.to, edge_e.frm, edge_weight)
 
         # adjust start node
@@ -74,7 +78,6 @@ class Router():
 
         # arrived
         if leg is None:
-            # print('ARRIVE', vehicle.id)
             return on_arrive(time)
 
         # TODO replanning can occur here too,

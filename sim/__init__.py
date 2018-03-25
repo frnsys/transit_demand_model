@@ -16,7 +16,7 @@ Agent = recordclass('Agent', ['id', 'start', 'end', 'dep_time', 'public'])
 
 
 class TransitSim(Sim):
-    def __init__(self, transit, router, roads):
+    def __init__(self, transit, router, roads, cache_routes=True):
         super().__init__()
         self.transit = transit
         self.router = router
@@ -26,7 +26,11 @@ class TransitSim(Sim):
         self.stops = defaultdict(lambda: defaultdict(list))
 
         # bus route caching
+        # can increase speed, but
+        # then buses may use "stale" routes
+        # or be unable to re-plan according to congestion
         self.route_cache = {}
+        self.cache_routes = cache_routes
 
     def run(self, agents):
         self.queue_public_transit()
@@ -36,7 +40,8 @@ class TransitSim(Sim):
     def queue_agents(self, agents):
         """queue agents trip,
         which may be via car or public transit"""
-        for agent in agents:
+        logger.info('Preparing agents...')
+        for agent in tqdm(agents):
             if agent.public:
                 try:
                     route, time = self.router.route(agent.start, agent.end, agent.dep_time)
@@ -148,19 +153,13 @@ class TransitSim(Sim):
             return events
 
         # figure out road route
-        # start = transit.stops.loc[cur_stop['stop_id']][['stop_lat', 'stop_lon']].values
-        # end = transit.stops.loc[next_stop['stop_id']][['stop_lat', 'stop_lon']].values
-        sid = self.transit.stop_idx.idx[cur_stop['stop_id']]
-        sid = self.transit.stops_list[sid]
-        start = sid['stop_lat'], sid['stop_lon']
-        eid = self.transit.stop_idx.idx[next_stop['stop_id']]
-        eid = self.transit.stops_list[eid]
-        end = eid['stop_lat'], eid['stop_lon']
         try:
-            # if (start, end) in ROUTE_CACHE:
-            #     route = ROUTE_CACHE[(start, end)]
-            route = self.roads.route(start, end)
-            # ROUTE_CACHE[(start, end)] = route
+            start, end = cur_stop['stop_id'], next_stop['stop_id']
+            if self.cache_routes and (start, end) in self.route_cache:
+                route = self.route_cache[(start, end)][:]
+            else:
+                route = self.roads.route_bus(start, end)
+                self.route_cache[(start, end)] = route[:]
         except NoRoadRouteFound:
             # TODO seems like something is wrong with the roads map
             # it cant't find a path but there is a relatively
