@@ -1,40 +1,30 @@
+import enum
+import config
 import logging
 import numpy as np
 from . import util
-from .csa import CSA
 from tqdm import tqdm
 from .calendar import Calendar
 from scipy.spatial import KDTree
-from collections import namedtuple
-from itertools import product
-from .enum import RouteType
+from .router import TransitRouter
 
 logger = logging.getLogger(__name__)
 
-base_transfer_time = 2*60 # lower-bound time-delta overhead for changing trips
-footpath_delta_base = 2*60 # footpath_delta = delta_base + km / speed_kmh
-footpath_speed_kmh = 5 / 3600
-footpath_delta_max = 7*60 # all footpaths longer than that are discarded as invalid
 
-
-WalkLeg = namedtuple('WalkLeg', ['time'])
-TransitLeg = namedtuple('TransitLeg', ['dep_stop', 'arr_stop', 'dep_time', 'arr_time', 'trip_id'])
-TransferLeg = namedtuple('TransferLeg', ['dep_stop', 'arr_stop', 'time'])
-
-
-class IntIndex:
-    def __init__(self, ids):
-        self.id = {}
-        self.idx = {}
-        for i, id in enumerate(ids):
-            self.id[i] = id  # to ids
-            self.idx[id] = i # to iids
-
-class NoRouteFound(Exception): pass
+class RouteType(enum.Enum):
+    """https://developers.google.com/transit/gtfs/reference/#routestxt"""
+    TRAM      = 0 # also: streetcar, light rail
+    METRO     = 1 # also: subway
+    RAIL      = 2
+    BUS       = 3
+    FERRY     = 4
+    CABLE     = 5 # street-level cable car
+    GONDOLA   = 6 # suspended cable car
+    FUNICULAR = 7 # steep incline rail
 
 
 class Transit:
-    def __init__(self, gtfs_path, closest_indirect_transfers=5):
+    def __init__(self, gtfs_path):
         """
         `closest_indirect_transfers` determines the number of closest stops for which
         indirect (walking) transfers are generated for. if you encounter a lot of
@@ -46,7 +36,7 @@ class Transit:
         self.calendar = Calendar(gtfs)
         self._process_gtfs(gtfs)
         self._kdtree = self._index_stops(self.stops)
-        self.footpaths = self._compute_footpaths(gtfs, closest_indirect_transfers)
+        self.footpaths = self._compute_footpaths(gtfs, config.closest_indirect_transfers)
         self.connections = self._compute_connections(gtfs)
         logger.info('Done')
 
@@ -63,13 +53,13 @@ class Transit:
         self.trips = gtfs['trips'].set_index('trip_id')
         self.stops = gtfs['stops'].set_index('stop_id')
 
-        # TESTING for faster lookups
+        # TODO TESTING for faster lookups
         self.stops_list = self.stops.to_dict('records')
 
         self.route_types = {r.route_id: RouteType(r.route_type) for r in gtfs['routes'].itertuples()}
 
-        self.trip_idx = IntIndex(gtfs['trips']['trip_id'].unique())
-        self.stop_idx = IntIndex(gtfs['stops']['stop_id'].unique())
+        self.trip_idx = util.IntIndex(gtfs['trips']['trip_id'].unique())
+        self.stop_idx = util.IntIndex(gtfs['stops']['stop_id'].unique())
 
         timetable = gtfs['stop_times']
         changes = timetable.apply(
@@ -157,7 +147,7 @@ class Transit:
             neighbors = neighbors[1:]
 
             # filter out long transfers
-            neighbors = [n for n in neighbors if n[1] <= footpath_delta_max]
+            neighbors = [n for n in neighbors if n[1] <= config.footpath_delta_max]
 
             footpaths[self.stop_idx.idx[stop.stop_id]] = [{
                 'dep_stop': self.stop_idx.idx[stop.stop_id],
@@ -178,7 +168,9 @@ class Transit:
 
         # compute estimated walking times
         times = [
-            (stop.Index, util.walking_time(coord, (stop.stop_lat, stop.stop_lon), footpath_delta_base, footpath_speed_kmh))
+            (stop.Index, util.walking_time(
+                coord, (stop.stop_lat, stop.stop_lon),
+                config.footpath_delta_base, config.footpath_speed_kmh))
             for stop in stops.itertuples()]
 
         # pair as `(stop_id, time)`
@@ -194,53 +186,3 @@ class Transit:
         """get a public transit router
         for the specified day"""
         return TransitRouter(self, dt)
-
-
-class TransitRouter:
-    def __init__(self, transit, dt):
-        self.T = transit
-        self.valid_trips = self.T.calendar.trips_for_day(dt)
-
-        # reduce connections to only those for this day
-        connections = [c for c in self.T.connections if self.T.trip_idx.id[c['trip_id']] in self.valid_trips]
-
-        # these need to be copied or we get a segfault?
-        # TODO look into this
-        footpaths_copy = {k: [dict(d) for d in v] for k, v in self.T.footpaths.items()}
-
-        self.csa = CSA(connections, footpaths_copy)
-
-    def route(self, start_coord, end_coord, dep_time, closest_stops=3):
-        """compute a trip-level route between
-        a start and an end stop for a given datetime"""
-        # candidate start and end stops,
-        # returned as [(iid, time), ...]
-        # NB here we assume people have no preference b/w transit mode,
-        # i.e. they are equally likely to choose a bus stop or a subway stop.
-        start_stops = dict(self.T.closest_stops(start_coord, n=closest_stops))
-        end_stops = dict(self.T.closest_stops(end_coord, n=closest_stops))
-        same_stops = set(start_stops.keys()) & set(end_stops.keys())
-
-        # if a same stop is in start and end stops,
-        # walking is probably the best option
-        if same_stops:
-            walk_time = util.walking_time(start_coord, end_coord, footpath_delta_base, footpath_speed_kmh)
-            return [WalkLeg(time=walk_time)], walk_time
-
-        best = (None, np.inf)
-        for (s_stop, s_walk), (e_stop, e_walk) in product(start_stops.items(), end_stops.items()):
-            route, time = self.route_stops(s_stop, e_stop, dep_time)
-            if route is not None and time < best[1]:
-                best = route, time
-        route, time = best
-        if route is None:
-            raise NoRouteFound
-        return [
-            TransitLeg(dep_stop=l['dep_stop'], arr_stop=l['arr_stop'], dep_time=l['dep_time'], arr_time=l['arr_time'], trip_id=l['trip_id']) if l['type'] == 1
-            else TransferLeg(dep_stop=l['dep_stop'], arr_stop=l['arr_stop'], time=l['time'])
-            for l in route], time
-
-    def route_stops(self, start_stop, end_stop, dep_time):
-        start = self.T.stop_idx.idx[start_stop]
-        end = self.T.stop_idx.idx[end_stop]
-        return self.csa.route(start, end, dep_time)

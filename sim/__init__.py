@@ -1,44 +1,224 @@
 import logging
+from .base import Sim
 from tqdm import tqdm
-from .events import EventQueue
-# from .vehicle import Vehicle
-from recordclass import recordclass
+from functools import partial
 from collections import defaultdict
+from recordclass import recordclass
+from road.router import NoRoadRouteFound
+from gtfs.router import WalkLeg, TransferLeg, TransitLeg, NoTransitRouteFound
+from gtfs import RouteType
 
 logger = logging.getLogger(__name__)
 
 Vehicle = recordclass('Vehicle', ['id', 'route', 'passengers', 'current'])
 Passenger = recordclass('Passenger', ['id', 'route'])
+Agent = recordclass('Agent', ['id', 'start', 'end', 'dep_time', 'public'])
 
 
-class Sim():
-    def __init__(self, map):
-        self.events = EventQueue()
-        self.map = map
+class TransitSim(Sim):
+    def __init__(self, transit, router, roads):
+        super().__init__()
+        self.transit = transit
+        self.router = router
+        self.roads = roads
 
         # for loading/unloading public transit passengers
         self.stops = defaultdict(lambda: defaultdict(list))
 
-    def run(self):
-        """process travel;
-        - the time in event = (time, action) is relative time, i.e. `time` seconds later.
-        - the time we pass into the actions, i.e. `action(time)` is absolute time, i.e. timestamp
-        - absolute time is the time we keep track of as the canonical event system time"""
-        logger.info('Processing trips...')
-        next = self.events.pop()
-        with tqdm() as pbar:
-            while next is not None:
-                time, action = next
-                new_events = action(time)
-                pbar.update()
-                for event in new_events:
-                    countdown, next_action = event
-                    next_time = time + countdown
-                    self.events.push((next_time, next_action))
-                next = self.events.pop()
+        # bus route caching
+        self.route_cache = {}
 
-    def queue(self, time, action):
-        self.events.push((time, action))
+    def run(self, agents):
+        self.queue_public_transit()
+        self.queue_agents(agents)
+        super().run()
+
+    def queue_agents(self, agents):
+        """queue agents trip,
+        which may be via car or public transit"""
+        for agent in agents:
+            if agent.public:
+                try:
+                    route, time = self.router.route(agent.start, agent.end, agent.dep_time)
+                    pas = Passenger(id=agent.id, route=route)
+                    self.queue(agent.dep_time, partial(self.passenger_next, pas))
+                except NoTransitRouteFound:
+                    # just skipping for now
+                    # this has happened because the departure time
+                    # is late and we don't project schedules into the next day
+                    continue
+            else:
+                route = self.roads.route(agent.start, agent.end)
+                veh = Vehicle(id=agent.id, route=route, passengers=[agent.id], current=None)
+                self.queue(agent.dep_time, partial(self.roads.router.next, veh, lambda t: []))
+
+    def queue_public_transit(self):
+        """
+        prepare all trips for day
+        pre-queue events for all public transit trips
+        they should always be running, regardless of if there
+        are any passengers, since they can affect traffic,
+        and the implementation is easier this way b/c we aren't
+        juggling specific spawning conditions for these trips.
+        we also assume that e.g. buses make it from the bus depot
+        to their first stop without any issue. if we wanted to get really
+        detailed we could also simulate the bus coming from the depot
+        to the first stop.
+        """
+        logger.info('Preparing public transit vehicles...')
+        # TODO temp
+        valid_trips = list(self.router.valid_trips)[:200]
+        for trip_id, sched in tqdm(self.transit.trip_stops):
+            # faster access as a list of dicts
+            sched = sched.to_dict('records')
+            if trip_id not in valid_trips:
+            # if trip_id not in router.valid_trips:
+                continue
+
+            # check the route type;
+            # buses should use roads
+            type = self.transit.trip_type(trip_id)
+
+            # queue all vehicles for this trip for this day
+            for i, start in enumerate(self.transit.trip_starts[trip_id]):
+                id = '{}_{}'.format(trip_id, i)
+                veh = Vehicle(id=id, route=sched, passengers=defaultdict(list), current=-1)
+
+                if type is RouteType.BUS:
+                    # bus will calc route when it needs to
+                    road_vehicle = Vehicle(id='{}_ROAD'.format(id), route=[], passengers=[], current=None)
+                    action = partial(self.on_bus_arrive, road_vehicle)
+                else:
+                    action = self.transit_next
+                action = partial(action, veh)
+                self.queue(start, action)
+                # TODO TEMP just starting one of each trip
+                break
+
+    def transit_next(self, vehicle, time):
+        """action for public transit vehicles"""
+        events = []
+        vehicle.current += 1
+        cur_stop = vehicle.route[vehicle.current]
+
+        # pickup passengers
+        trip_id = vehicle.id.split('_')[0]
+        for (end_stop, action) in self.stops[cur_stop['stop_id']][trip_id]:
+            logger.info('[{}] {} Picking up passengers at {}'.format(time, vehicle.id, cur_stop['stop_id']))
+            vehicle.passengers[end_stop].append(action)
+            self.stops[cur_stop['stop_id']][trip_id] = []
+
+        # dropoff passengers
+        for action in vehicle.passengers[cur_stop['stop_id']]:
+            logger.info('[{}] {} Dropping off passengers at {}'.format(time, vehicle.id, cur_stop['stop_id']))
+            events.extend(action(time))
+            vehicle.passengers[cur_stop['stop_id']] = []
+
+        try:
+            next_stop = vehicle.route[vehicle.current + 1]
+        except IndexError:
+            # trip is done
+            return events
+
+        # schedule next leg of trip
+        time = next_stop['arr_sec'] - cur_stop['dep_sec']
+        events.append((time, partial(self.transit_next, vehicle)))
+        return events
+
+
+    def on_bus_arrive(self, road_vehicle, transit_vehicle, time):
+        """triggers when a bus arrives at its next stop in the road network.
+        buses have to be handled specially because they are a hybrid
+        public transit and road vehicle
+        we have two vehicles:
+        - one which represents the public transit side of the bus
+        (picking up and dropping off passengers)
+        - one which represents the bus as it travels on roads"""
+
+        # pick-up/drop-off
+        events = self.transit_next(transit_vehicle, time)
+
+        # prepare to depart
+        try:
+            cur_stop = transit_vehicle.route[transit_vehicle.current]
+            next_stop = transit_vehicle.route[transit_vehicle.current + 1]
+            time_to_dep = cur_stop['dep_sec'] - cur_stop['arr_sec']
+        except IndexError:
+            # trip is done
+            return events
+
+        # figure out road route
+        # start = transit.stops.loc[cur_stop['stop_id']][['stop_lat', 'stop_lon']].values
+        # end = transit.stops.loc[next_stop['stop_id']][['stop_lat', 'stop_lon']].values
+        sid = self.transit.stop_idx.idx[cur_stop['stop_id']]
+        sid = self.transit.stops_list[sid]
+        start = sid['stop_lat'], sid['stop_lon']
+        eid = self.transit.stop_idx.idx[next_stop['stop_id']]
+        eid = self.transit.stops_list[eid]
+        end = eid['stop_lat'], eid['stop_lon']
+        try:
+            # if (start, end) in ROUTE_CACHE:
+            #     route = ROUTE_CACHE[(start, end)]
+            route = self.roads.route(start, end)
+            # ROUTE_CACHE[(start, end)] = route
+        except NoRoadRouteFound:
+            # TODO seems like something is wrong with the roads map
+            # it cant't find a path but there is a relatively
+            # short one on OSM and Google Maps
+            # import ipdb; ipdb.set_trace()
+            logger.warn('Ignoring no road route found!')
+            return []
+
+        # update route
+        road_vehicle.route = route
+
+        # so we don't double-leave the current edge
+        # otherwise we get negative occupancies in roads
+        road_vehicle.current = None
+
+        # setup on arrive trigger
+        on_arrive = partial(self.on_bus_arrive, road_vehicle, transit_vehicle)
+
+        # override last event
+        events[-1] = (time_to_dep, partial(self.roads.router.next, road_vehicle, on_arrive))
+        return events
+
+
+    def passenger_next(self, passenger, time):
+        """action for individual public transit passengers"""
+        try:
+            leg = passenger.route.pop(0)
+        except IndexError:
+            logger.info('[{}] {} Arrived'.format(time, passenger.id))
+            return []
+
+        # setup next actoin
+        action = partial(self.passenger_next, passenger)
+
+        if isinstance(leg, WalkLeg):
+            logger.info('[{}] {} Walking'.format(time, passenger.id))
+            rel_time = leg.time
+            return [(rel_time, action)]
+
+        elif isinstance(leg, TransferLeg):
+            logger.info('[{}] {} Transferring'.format(time, passenger.id))
+            rel_time = leg.time
+            return [(rel_time, action)]
+
+        elif isinstance(leg, TransitLeg):
+            # wait at stop
+            # TODO how long do we wait to see if they re-plan?
+            # or check if there is an equivalent trip they can take?
+
+            # convert from iids to ids
+            dep_stop = self.transit.stop_idx.id[leg.dep_stop]
+            arr_stop = self.transit.stop_idx.id[leg.arr_stop]
+            trip_id = self.transit.trip_idx.id[leg.trip_id]
+
+            logger.info('[{}] {} Waiting at stop {}'.format(time, passenger.id, dep_stop))
+            self.stops[dep_stop][trip_id].append((arr_stop, action))
+            return []
+
 
     # TODO
     def export(self):

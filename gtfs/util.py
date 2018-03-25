@@ -52,3 +52,13 @@ def time_to_secs(time):
 
 def secs_to_gtfs_time(secs):
     return str(timedelta(seconds=int(secs)))
+
+
+class IntIndex:
+    """two-way positional index"""
+    def __init__(self, ids):
+        self.id = {}
+        self.idx = {}
+        for i, id in enumerate(ids):
+            self.id[i] = id  # to ids
+            self.idx[id] = i # to iids
