@@ -90,11 +90,18 @@ class Roads():
         self.router = Router(self)
 
     def to_xy(self, lat, lon):
+        # order is lon, lat: <https://github.com/jswhit/pyproj/issues/26>
         return pyproj.transform(geo_proj, self.utm_proj, lon, lat)
 
     def to_latlon(self, x, y):
+        # order is lon, lat: <https://github.com/jswhit/pyproj/issues/26>
         lon, lat = pyproj.transform(self.utm_proj, geo_proj, x, y)
         return lat, lon
+
+    def to_latlon_bulk(self, coords):
+        xs, ys = zip(*coords)
+        lon, lat = pyproj.transform(self.utm_proj, geo_proj, xs, ys)
+        return list(zip(lat, lon))
 
     def nearest_node(self, coord):
         """find the nearest node in the road
@@ -261,19 +268,22 @@ class Roads():
         end_edge = self.stops[end_stop]
         return self.router.route_edges(start_edge, end_edge)
 
-    def segments(self, legs, step=0.1):
-        """break trip into segments, e.g. for visualization purposes"""
+    def segments(self, legs, step=0.25):
+        """break trip into segments, e.g. for visualization purposes.
+		step size controls the "fidelity" of the segments, i.e. the smaller
+		the step size, the more segments are created, so curves are represented better.
+		but smaller step sizes can siginficantly increase the processing time."""
         segs = []
         last = None
         for time, travel_time, edge in legs:
-            pts = self.segment_leg(edge.frm, edge.to, edge.edge_no)
+            pts = self.segment_leg(edge.frm, edge.to, edge.edge_no, step)
             # TODO coordinate ordering??
             segs.extend([[lon, lat, time + (p * travel_time)] for (lat, lon), p in pts])
             if segs:
                 last = segs.pop(-1) # first segment is same as last leg's last segment
         return segs + [last]
 
-    def segment_leg(self, u, v, edge_no, step=0.1):
+    def segment_leg(self, u, v, edge_no, step):
         """segments a leg of a trip
         (a leg a part of a trip that corresponds to an edge)"""
         edge = self.network.get_edge_data(u, v, key=edge_no)
@@ -286,7 +296,10 @@ class Roads():
         else:
             pts = [(geo.interpolate(p, normalized=True).coords[0], p)
                 for p in np.arange(0, 1+step, step)]
-        return [(self.to_latlon(*pt), p) for pt, p in pts]
+
+        pts, ps = zip(*pts)
+        coords = self.to_latlon_bulk(pts)
+        return list(zip(coords, ps))
 
 
 def lerp(pt1, pt2, step):

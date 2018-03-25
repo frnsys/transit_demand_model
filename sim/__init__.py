@@ -75,10 +75,11 @@ class TransitSim(Sim):
         to the first stop.
         """
         logger.info('Preparing public transit vehicles...')
+        valid_trips = self.router.valid_trips
         for trip_id, sched in tqdm(self.transit.trip_stops):
             # faster access as a list of dicts
             sched = sched.to_dict('records')
-            if trip_id not in self.router.valid_trips:
+            if trip_id not in valid_trips:
                 continue
 
             # check the route type;
@@ -275,13 +276,14 @@ class TransitSim(Sim):
         logger.info('Exporting...')
         trips = []
         for trip in tqdm(self.history.values()):
+            # print(len(trip)) # trips are quite long...
             trips.append({
                 'vendor': 0,
                 'segments': self.roads.segments(trip)
             })
 
-        stops = [self.roads.to_latlon(e.pt.x, e.pt.y)
-                 for e in self.roads.stops.values()]
+        coords = [(e.pt.x, e.pt.y) for e in self.roads.stops.values()]
+        stops = self.roads.to_latlon_bulk(coords)
 
         return {
             'place': {
