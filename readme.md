@@ -15,7 +15,20 @@
 - if they have vehicles, etc
 - where they go (i.e. activity schedule)
 
+## Setup
+
+- Install requirements: `pip install -r requirements.txt`
+- Build `cython` extensions: `python setup.py build_ext --inplace`
+- Change config values if desired, in `config.py`
+- Run `python main.py`
+
 ---
+
+# Known issues
+
+- Routes often cannot be found through the road network. This seems to be an issue with the road network data?
+- Need to calibrate road travel times/capacities, so that e.g. buses reaching stops align to their schedule. I believe currently this is causing all buses to be severely delayed.
+    - Need to consider `SPEED_FACTOR` in public transit as well
 
 # Enhancements
 
@@ -23,12 +36,6 @@
 - route caching (travel habit formation)
 - parking time/availability
 - random events like accidents
-
-# Known issues
-
-- Routes often cannot be found through the road network. This seems to be an issue with the road network data?
-- Need to calibrate road travel times/capacities, so that e.g. buses reaching stops align to their schedule
-- Need to consider `SPEED_FACTOR` in public transit as well
 
 ---
 
