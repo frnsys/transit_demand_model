@@ -30,9 +30,9 @@ import requests
 import osmnx as ox
 from tqdm import tqdm
 from .router import Router
-from pyqtree import Index
 from shapely import geometry
 from collections import defaultdict
+from .quadtree import QuadTree
 
 logger = logging.getLogger(__name__)
 
@@ -40,7 +40,10 @@ OSM_NOMINATIM = 'https://nominatim.openstreetmap.org/search'
 DEFAULT_SPEED = 30
 ox.settings.data_folder = 'data/networks'
 geo_proj = pyproj.Proj({'init':'epsg:4326'}, preserve_units=True)
-BOUND_RADIUS = 0.01 # TODO tweak this
+
+# this has been adjusted to find the closest edges
+# without looking at too many
+BOUND_RADIUS = 0.001
 
 
 def lookup_place(place):
@@ -194,8 +197,9 @@ class Map():
 
     def _make_qt_index(self):
         # in lat, lng
-        idx = Index(self.bbox)
-        for e, data in tqdm(self.network.edges.items()):
+        idx = QuadTree.from_bbox(self.bbox)
+        # idx = Index(self.bbox)
+        for i, (e, data) in tqdm(enumerate(self.network.edges.items()), total=len(self.network.edges.items())):
             if 'geometry' not in data:
                 u = self.network.nodes[e[0]]
                 v = self.network.nodes[e[1]]
@@ -215,11 +219,10 @@ class Map():
             # not using osmid b/c sometimes they come as lists
             # so make the edge id out of (u, v, edge no)
             id = '_'.join([str(i) for i in e])
-            idx.insert(id, bounds)
-            self.edges[id] = data
+            idx.insert(i, bounds)
+            self.edges[i] = (id, data)
         return idx
 
-    @profile
     def find_closest_edge(self, coord):
         """given a query point, will find
         the closest edge/path in the self to that point,
@@ -234,9 +237,9 @@ class Map():
         pt = self.to_xy(*coord)
         pt = geometry.Point(*pt)
 
-        id = None
+        idx = None
         r = BOUND_RADIUS
-        while id is None:
+        while idx is None:
             # This seems to be called way too much, which
             # might indicate that something is wrong with the implementation
             # or the bound radius is too small
@@ -249,8 +252,9 @@ class Map():
             if not matches:
                 r *= 2 # expand search area
                 continue
-            id = min(matches, key=lambda id: self.edges[id]['geometry'].distance(pt))
-        edge_data = self.edges[id]
+
+            idx = min(matches, key=lambda i: self.edges[i][1]['geometry'].distance(pt))
+        id, edge_data = self.edges[idx]
 
         # find closest point on closest edge
         line = edge_data['geometry']

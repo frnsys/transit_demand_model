@@ -30,7 +30,6 @@ def random_point(geo):
     return point
 
 
-@profile
 def public_transit_next(stops, vehicle, time):
     events = []
     vehicle.current += 1
@@ -59,7 +58,6 @@ def public_transit_next(stops, vehicle, time):
     return events
 
 
-@profile
 def on_bus_arrive(stops, transit, router, road_vehicle, transit_vehicle, time):
     global n_route_hits
     # we have two vehicles:
@@ -110,7 +108,6 @@ def on_bus_arrive(stops, transit, router, road_vehicle, transit_vehicle, time):
     return events
 
 
-@profile
 def passenger_next(transit, stops, passenger, time):
     try:
         leg = passenger.route.pop(0)
@@ -162,6 +159,7 @@ if __name__ == '__main__':
     # to their first stop without any issue. if we wanted to get really
     # detailed we could also simulate the bus coming from the depot
     # to the first stop.
+    print('Preparing trips...')
     valid_trips = list(router.valid_trips)[:200]
     for trip_id, sched in transit.trip_stops:
         sched = sched.to_dict('records')

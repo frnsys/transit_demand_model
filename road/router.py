@@ -21,7 +21,6 @@ class Router():
         # keep track of trips
         self.trips = defaultdict(list)
 
-    @profile
     def route(self, start, end):
         """compute a road route
         between a start and end coordinate"""
@@ -53,7 +52,6 @@ class Router():
         route.append(Leg(frm=path[-1][0], to=int(e_to), edge=e_idx, p=e_p))
         return route
 
-    @profile
     def travel(self, path):
         # last node in path
         # is destination
@@ -68,7 +66,6 @@ class Router():
 
         return leg, edge, time
 
-    @profile
     def next(self, vehicle, on_arrive, time):
         """compute next event in trip"""
         edge = vehicle.current
@@ -158,7 +155,6 @@ def lerp(pt1, pt2, step):
     return [(pt1+p*(pt2-pt1), p) for p in np.arange(0, 1+step, step)]
 
 
-@profile
 def dijkstra(G, source, target, weight):
     G_succ = G._succ if G.is_directed() else G._adj
 
