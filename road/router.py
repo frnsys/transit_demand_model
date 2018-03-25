@@ -3,6 +3,7 @@ from itertools import count
 from functools import partial
 from heapq import heappush, heappop
 from collections import defaultdict, namedtuple
+from .graph import edge_weight, edge_travel_time
 
 # `p` tells us the proportion of the edge we actually travel,
 # e.g. if we start earlier or later along the road
@@ -59,7 +60,7 @@ class Router():
         edge = self.network[leg.frm][leg.to][leg.edge]
 
         # where leg.p is the proportion of the edge we travel
-        time = edge_travel_time(edge) * leg.p
+        time = (edge_travel_time(edge)/config.SPEED_FACTOR) * leg.p
 
         return leg, edge, time
 
@@ -98,21 +99,6 @@ class Router():
         # but how much?
         # or will it not affect the model much?
         return [(travel_time, partial(self.next, vehicle, on_arrive))]
-
-
-def edge_weight(u, v, edges):
-    """determines the attractiveness/speed of a
-    network edge; the lower the better"""
-    # there may be multiple edges;
-    # default to the shortest
-    edges = [(idx, edge_travel_time(data)) for idx, data in edges.items()]
-    return min(edges, key=lambda e: e[1])
-
-
-def edge_travel_time(edge):
-    """travel time for a traveler entering an edge"""
-    # TODO get clarification on these terms and how they're being used here
-    return (edge['length'] * ((edge['occupancy'] + 1)/edge['capacity']) * edge['maxspeed'])/config.SPEED_FACTOR
 
 
 def dijkstra(G, source, target, weight):

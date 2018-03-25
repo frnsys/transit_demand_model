@@ -71,13 +71,10 @@ class TransitSim(Sim):
         to the first stop.
         """
         logger.info('Preparing public transit vehicles...')
-        # TODO temp
-        valid_trips = list(self.router.valid_trips)[:200]
         for trip_id, sched in tqdm(self.transit.trip_stops):
             # faster access as a list of dicts
             sched = sched.to_dict('records')
-            if trip_id not in valid_trips:
-            # if trip_id not in router.valid_trips:
+            if trip_id not in self.router.valid_trips:
                 continue
 
             # check the route type;
@@ -97,8 +94,6 @@ class TransitSim(Sim):
                     action = self.transit_next
                 action = partial(action, veh)
                 self.queue(start, action)
-                # TODO TEMP just starting one of each trip
-                break
 
     def transit_next(self, vehicle, time):
         """action for public transit vehicles"""

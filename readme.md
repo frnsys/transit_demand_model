@@ -1,23 +1,12 @@
 # Transit demand model prototype
 (for PolicySpace)
 
-- treat roads (edges) as FIFO queues, which assumes that cars don't pass each other in roads
-    - we can maybe find ways to remove this assumption by introducing individual variability in edge travel time
-- edge (road) properties:
-    - length
-    - capacity
-    - free-flow speed
-    - occupancy (how many vehicles are on the road)
-
-## Next steps
-
-- bus networks
-- support other public transit options which operate on independent networks (e.g. subways)
-- conditional re-planning/re-routing at intersections
-- refined travel time estimation
-- route caching (travel habit formation)
-- parking time/availability
-- random events like accidents
+- discrete event simulation
+- includes roads component, using OSM data
+    - treat roads (edges) as FIFO queues, which assumes that cars/buses don't pass each other in roads
+- includes public transit component, using GTFS data
+    - buses will travel via the road network
+- support for a map visualization of the output data from a simulation run
 
 ## PolicySpace integration
 
@@ -25,6 +14,23 @@
 - determine which agents commute
 - if they have vehicles, etc
 - where they go (i.e. activity schedule)
+
+---
+
+# Enhancements
+
+- conditional re-planning/re-routing at intersections
+- route caching (travel habit formation)
+- parking time/availability
+- random events like accidents
+
+# Known issues
+
+- Routes often cannot be found through the road network. This seems to be an issue with the road network data?
+- Need to calibrate road travel times/capacities, so that e.g. buses reaching stops align to their schedule
+- Need to consider `SPEED_FACTOR` in public transit as well
+
+---
 
 # Visualization
 
@@ -52,25 +58,3 @@ npm start
 
 Then visit `localhost:8081`
 
-
----
-
-# graph-tool installation
-
-download release from <https://git.skewed.de/count0/graph-tool/tags>
-
-```
-sudo apt install libcgal-dev libexpat1-dev libsparsehash-dev libcairomm-1.0-dev python3-cairo-dev
-# activate your virtualenv
-./autogen.sh
-./configure --prefix=$HOME/.local
-make install
-```
-
-also:
-
-```
-pip install pycairo
-```
-
-reference: <https://git.skewed.de/count0/graph-tool/wikis/installation-instructions#manual-compilation>

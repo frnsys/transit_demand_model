@@ -52,8 +52,10 @@ class TransitRouter:
         best = (None, np.inf)
         for (s_stop, s_walk), (e_stop, e_walk) in product(start_stops.items(), end_stops.items()):
             route, time = self.route_stops(s_stop, e_stop, dep_time)
-            if route is not None and time < best[1]:
-                best = route, time
+            if route is not None:
+                time = s_walk + time + e_walk
+                if time < best[1]:
+                    best = route, time
         route, time = best
         if route is None:
             raise NoTransitRouteFound

@@ -22,6 +22,7 @@ edge attributes (may not all be present):
 """
 
 import os
+import math
 import config
 import pyproj
 import logging
@@ -166,7 +167,7 @@ class Roads():
 
             # estimate vehicle capacity
             # TODO this is made up for now
-            capacity = d['length']/20 * d['lanes']
+            capacity = math.ceil(d['length']/20 * d['lanes'])
 
             d.update({
                 'occupancy': 0,
