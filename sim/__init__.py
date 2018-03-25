@@ -1,4 +1,3 @@
-import config
 import logging
 from .base import Sim
 from tqdm import tqdm
@@ -79,7 +78,7 @@ class TransitSim(Sim):
         for trip_id, sched in tqdm(self.transit.trip_stops):
             # faster access as a list of dicts
             sched = sched.to_dict('records')
-            if trip_id not in list(self.router.valid_trips)[:200]: # TODO
+            if trip_id not in self.router.valid_trips:
                 continue
 
             # check the route type;
@@ -99,7 +98,6 @@ class TransitSim(Sim):
                     action = self.transit_next
                 action = partial(action, veh)
                 self.queue(start, action)
-                break # TODO
 
     def transit_next(self, vehicle, time):
         """action for public transit vehicles"""
@@ -230,8 +228,7 @@ class TransitSim(Sim):
         edge = self.roads.network[leg.frm][leg.to][leg.edge_no]
 
         # where leg.p is the proportion of the edge we travel
-        travel_time = edge_travel_time(edge['length'], edge['maxspeed'], edge['occupancy'], edge['capacity'])
-        time = (travel_time/config.SPEED_FACTOR) * leg.p
+        time = edge_travel_time(edge) * leg.p
 
         return leg, edge, time
 

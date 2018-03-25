@@ -9,7 +9,8 @@ from datetime import datetime
 from shapely.geometry import Point
 
 random.seed(0)
-logging.basicConfig(level=logging.INFO)
+# logging.basicConfig(level=logging.INFO)
+logging.basicConfig(level=logging.ERROR)
 
 
 def random_point(geo):
