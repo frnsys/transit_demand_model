@@ -52,12 +52,18 @@ class TransitSim(Sim):
                     pas = Passenger(id=agent.id, route=route)
                     self.queue(agent.dep_time, partial(self.passenger_next, pas))
                 except NoTransitRouteFound:
-                    # just skipping for now
+                    # TODO just skipping for now
                     # this has happened because the departure time
                     # is late and we don't project schedules into the next day
                     continue
             else:
-                route = self.roads.route(agent.start, agent.end)
+                try:
+                    route = self.roads.route(agent.start, agent.end)
+                except NoRoadRouteFound:
+                    # TODO just skipping for now
+                    # likely because something is wrong with the road network
+                    # see other place we are catching NoRoadRouteFound
+                    continue
                 veh = Vehicle(id=agent.id, route=route, passengers=[agent.id], current=None)
                 self.queue(agent.dep_time, partial(self.road_next, veh, lambda t: []))
 
@@ -109,13 +115,13 @@ class TransitSim(Sim):
         # pickup passengers
         trip_id = vehicle.id.split('_')[0]
         for (end_stop, action) in self.stops[cur_stop['stop_id']][trip_id]:
-            logger.info('[{}] {} Picking up passengers at {}'.format(time, vehicle.id, cur_stop['stop_id']))
+            logger.debug('[{}] {} Picking up passengers at {}'.format(time, vehicle.id, cur_stop['stop_id']))
             vehicle.passengers[end_stop].append(action)
             self.stops[cur_stop['stop_id']][trip_id] = []
 
         # dropoff passengers
         for action in vehicle.passengers[cur_stop['stop_id']]:
-            logger.info('[{}] {} Dropping off passengers at {}'.format(time, vehicle.id, cur_stop['stop_id']))
+            logger.debug('[{}] {} Dropping off passengers at {}'.format(time, vehicle.id, cur_stop['stop_id']))
             events.extend(action(time))
             vehicle.passengers[cur_stop['stop_id']] = []
 
@@ -188,19 +194,19 @@ class TransitSim(Sim):
         try:
             leg = passenger.route.pop(0)
         except IndexError:
-            logger.info('[{}] {} Arrived'.format(time, passenger.id))
+            logger.debug('[{}] {} Arrived'.format(time, passenger.id))
             return []
 
         # setup next action
         action = partial(self.passenger_next, passenger)
 
         if isinstance(leg, WalkLeg):
-            logger.info('[{}] {} Walking'.format(time, passenger.id))
+            logger.debug('[{}] {} Walking'.format(time, passenger.id))
             rel_time = leg.time
             return [(rel_time, action)]
 
         elif isinstance(leg, TransferLeg):
-            logger.info('[{}] {} Transferring'.format(time, passenger.id))
+            logger.debug('[{}] {} Transferring'.format(time, passenger.id))
             rel_time = leg.time
             return [(rel_time, action)]
 
@@ -214,7 +220,7 @@ class TransitSim(Sim):
             arr_stop = self.transit.stop_idx.id[leg.arr_stop]
             trip_id = self.transit.trip_idx.id[leg.trip_id]
 
-            logger.info('[{}] {} Waiting at stop {}'.format(time, passenger.id, dep_stop))
+            logger.debug('[{}] {} Waiting at stop {}'.format(time, passenger.id, dep_stop))
             self.stops[dep_stop][trip_id].append((arr_stop, action))
             return []
 

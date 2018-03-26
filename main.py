@@ -1,4 +1,4 @@
-import json
+# import json
 import random
 import logging
 import osmnx as ox
@@ -9,8 +9,7 @@ from datetime import datetime
 from shapely.geometry import Point
 
 random.seed(0)
-# logging.basicConfig(level=logging.INFO)
-logging.basicConfig(level=logging.ERROR)
+logging.basicConfig(level=logging.INFO)
 
 
 def random_point(geo):
@@ -36,7 +35,7 @@ if __name__ == '__main__':
     sim = TransitSim(transit, router, roads)
 
     agents = []
-    n_agents = 100
+    n_agents = 200
     for i in range(n_agents):
         dep_time = random.randint(0, 60*60*24)
 
@@ -53,13 +52,13 @@ if __name__ == '__main__':
     sim.run(agents)
 
     # for deckgl visualization
-    data = sim.export()
+    # data = sim.export()
 
-    with open('viz/assets/trips.json', 'w') as f:
-        json.dump(data['trips'], f)
+    # with open('viz/assets/trips.json', 'w') as f:
+    #     json.dump(data['trips'], f)
 
-    with open('viz/assets/coord.json', 'w') as f:
-        json.dump(data['place'], f)
+    # with open('viz/assets/coord.json', 'w') as f:
+    #     json.dump(data['place'], f)
 
-    with open('viz/assets/stops.json', 'w') as f:
-        json.dump(data['stops'], f)
+    # with open('viz/assets/stops.json', 'w') as f:
+    #     json.dump(data['stops'], f)
