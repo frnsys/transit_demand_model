@@ -17,3 +17,6 @@ SPEED_FACTOR = 2
 # i.e. to find the closest edges
 # without looking at too many
 BOUND_RADIUS = 0.001
+
+# +/- 0.61km
+GEOHASH_PRECISION = 6
