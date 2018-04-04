@@ -127,20 +127,19 @@ class Roads():
         # (in particular, `highway=residential` are missing them)
         # do our best to estimate the missing values
         self.edges = {}
+        to_remove = set()
         missing_speeds = []
         impute_speeds = defaultdict(list)
-
-        # setup quadtree
-        logger.info('Preparing quadtree index...')
-        self.idx = self._make_qt_index()
-
-        # map public transit stops to road network
-        self._infer_transit_stops()
 
         # add occupancy to edges
         # and impute values where possible
         logger.info('Preparing edges...')
         for e, d in tqdm(self.network.edges.items()):
+            highway = d['highway']
+            if highway in ['disused', 'dummy']:
+                to_remove.add(e)
+                continue
+
             # <https://wiki.openstreetmap.org/wiki/Josm/styles/lane_features>
             # TODO check specifically for bus lanes:
             # <https://wiki.openstreetmap.org/wiki/Key:lanes>
@@ -157,13 +156,11 @@ class Roads():
             # it's data misentry?
             d['lanes'] = max(lanes, 1)
 
-
             # track which edges we need to
             # impute `maxspeed` data for
             if 'maxspeed' not in d:
                 missing_speeds.append(d)
             else:
-                highway = d['highway']
                 maxspeed = d['maxspeed']
                 if isinstance(maxspeed, list):
                     # TODO if multiple speeds are listed,
@@ -200,16 +197,23 @@ class Roads():
             try:
                 d['maxspeed'] = sum(speeds)/len(speeds)
             except ZeroDivisionError:
-                if highway in ['disused', 'dummy']:
-                    d['maxspeed'] = 0
-                else:
-                    d['maxspeed'] = config.DEFAULT_ROAD_SPEEDS[highway]
+                d['maxspeed'] = config.DEFAULT_ROAD_SPEEDS[highway]
+
+        for e in to_remove:
+            self.network.remove_edge(*e)
+
+        # setup quadtree
+        logger.info('Preparing quadtree index...')
+        self.idx = self._make_qt_index()
+
+        # map public transit stops to road network
+        self._infer_transit_stops()
+
 
     def _make_qt_index(self):
         """create the quadtree index"""
         # in lat, lon
         idx = QuadTree.from_bbox(self.bbox)
-        # idx = Index(self.bbox)
         for i, (e, data) in tqdm(enumerate(self.network.edges.items()), total=len(self.network.edges.items())):
             if 'geometry' not in data:
                 u = self.network.nodes[e[0]]

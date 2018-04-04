@@ -15,6 +15,9 @@ Passenger = recordclass('Passenger', ['id', 'route'])
 Agent = recordclass('Agent', ['id', 'start', 'end', 'dep_time', 'public'])
 
 
+ACCEPTABLE_DELAY_MARGIN = 5*60
+
+
 class TransitSim(Sim):
     def __init__(self, transit, router, roads, cache_routes=True):
         super().__init__()
@@ -35,6 +38,11 @@ class TransitSim(Sim):
         # track (road) vehicle trips,
         # for exporting (visualization) purposes
         self.history = defaultdict(list)
+
+        # for calibrating road network speed
+        # to bus schedules
+        self.last_deps = {}
+        self.delays = []
 
     def run(self, agents):
         self.queue_public_transit()
@@ -81,6 +89,7 @@ class TransitSim(Sim):
         to the first stop.
         """
         logger.info('Preparing public transit vehicles...')
+        # valid_trips = sorted(list(self.router.valid_trips))[:100]
         valid_trips = self.router.valid_trips
         for trip_id, sched in tqdm(self.transit.trip_stops):
             # faster access as a list of dicts
@@ -145,15 +154,37 @@ class TransitSim(Sim):
         - one which represents the public transit side of the bus
         (picking up and dropping off passengers)
         - one which represents the bus as it travels on roads"""
-
         # pick-up/drop-off
         events = self.transit_next(transit_vehicle, time)
+        cur_stop = transit_vehicle.route[transit_vehicle.current]
+
+        last_dep = self.last_deps.get(transit_vehicle.id)
+        if last_dep is not None:
+            # we compare scheduled vs actual travel times rather than
+            # scheduled vs actual arrival times to control for drift.
+            # if we compared arrival times, earlier days would accumulate
+            # and likely cause all subsequent arrivals to be delayed.
+            # comparing travel times avoids this and also
+            # lets us better diagnose where the largest travel time
+            # discrepancies are.
+            last_stop = transit_vehicle.route[transit_vehicle.current-1]
+            scheduled_travel_time = cur_stop['arr_sec'] - last_stop['dep_sec']
+            actual_travel_time = time - last_dep
+            delay = actual_travel_time - scheduled_travel_time
+            # for calibration, want to take the absolute value
+            if abs(delay) > ACCEPTABLE_DELAY_MARGIN:
+            # otherwise:
+            # if delay > ACCEPTABLE_DELAY_MARGIN:
+                # print('TRAVEL EXCEPTION: {:.2f}min'.format(delay/60))
+                self.delays.append(delay)
 
         # prepare to depart
         try:
-            cur_stop = transit_vehicle.route[transit_vehicle.current]
             next_stop = transit_vehicle.route[transit_vehicle.current + 1]
             time_to_dep = cur_stop['dep_sec'] - cur_stop['arr_sec']
+
+            # for tracking travel times
+            self.last_deps[transit_vehicle.id] = time + time_to_dep
         except IndexError:
             # trip is done
             return events
@@ -267,7 +298,8 @@ class TransitSim(Sim):
 
         vehicle.current = edge
 
-        self.history[vehicle.id].append((time, travel_time, leg))
+        # cast to avoid errors with serializing numpy types
+        self.history[vehicle.id].append((float(time), float(travel_time), leg))
 
         # return next event
         # TODO this assumes agents don't stop at

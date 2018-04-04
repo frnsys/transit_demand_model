@@ -24,6 +24,7 @@ def random_point(geo):
             point = (lat, lon)
     return point
 
+
 if __name__ == '__main__':
     place = 'Belo Horizonte, Brazil'
     gdf = ox.gdf_from_place(place)
@@ -36,6 +37,7 @@ if __name__ == '__main__':
 
     agents = []
     n_agents = 200
+    # n_agents = 0
     for i in range(n_agents):
         dep_time = random.randint(0, 60*60*24)
 
@@ -50,6 +52,13 @@ if __name__ == '__main__':
         agents.append(agent)
 
     sim.run(agents)
+    import ipdb; ipdb.set_trace()
+
+    # from time import time
+    # s = time()
+    # with open('history.json', 'w') as f:
+    #     json.dump(sim.history, f)
+    # print('took', time() - s)
 
     # for deckgl visualization
     # data = sim.export()
