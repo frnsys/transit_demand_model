@@ -6,10 +6,21 @@ closest_indirect_transfers = 5
 
 # max speed used if one is not specified or one cannot
 # be estimated for a road segment
-DEFAULT_ROAD_SPEED = 30
+# https://wiki.openstreetmap.org/wiki/Key:highway
+# https://en.wikivoyage.org/wiki/Driving_in_Brazil
+# TODO get better values
+DEFAULT_ROAD_SPEEDS = {
+    'disused': 0,
+    'living_street': 30,
+    'residential': 30,
+    'motorway': 110,
+    'primary': 110,
+    'trunk': 110,
+    'secondary': 80,
+    'tertiary': 60
+}
 
-# NOTE this needs to be calibrated to the public transit schedule as well
-SPEED_FACTOR = 2
+SPEED_FACTOR = 1
 
 # how far around a point to search for
 # closest edges.

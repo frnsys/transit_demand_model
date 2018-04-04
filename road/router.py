@@ -1,3 +1,4 @@
+import math
 import config
 from itertools import count
 from heapq import heappush, heappop
@@ -100,5 +101,17 @@ def edge_weight(u, v, edges):
 
 def edge_travel_time(edge):
     """travel time for a traveler entering an edge"""
-    # TODO get clarification on these terms and how they're being used here
-    return (edge['length'] * ((edge['occupancy'] + 1)/edge['capacity']) * edge['maxspeed'])/config.SPEED_FACTOR
+    # assuming people always drive at maxspeed
+    time = (edge['length']/edge['maxspeed'])
+
+    # occupancy, including this new vehicle
+    occupancy = edge['occupancy'] + 1
+
+    # assuming each vehicle takes its own lane
+    # if possible
+    occupancy_per_lane = 1 + (occupancy-1)//edge['lanes']
+
+    # really not sure how best to calculate this
+    congestion_multiplier = 1 + math.sqrt(occupancy_per_lane**2/edge['capacity'])
+
+    return (time * congestion_multiplier)/config.SPEED_FACTOR

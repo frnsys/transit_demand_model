@@ -14,6 +14,7 @@ edge attributes (may not all be present):
 - oneway (bool)
 - highway (str or list of strs, one of 'residential', 'secondary', tertiary', 'trunk',
   'primary', 'motorway', 'unclassified', and any of those followed with '_link')
+    - see <https://wiki.openstreetmap.org/wiki/Key:highway>
 - lanes (str or list of str)
 - access (str)
 - junction (str)
@@ -141,6 +142,8 @@ class Roads():
         logger.info('Preparing edges...')
         for e, d in tqdm(self.network.edges.items()):
             # <https://wiki.openstreetmap.org/wiki/Josm/styles/lane_features>
+            # TODO check specifically for bus lanes:
+            # <https://wiki.openstreetmap.org/wiki/Key:lanes>
             lanes = d.get('lanes', 1)
             if isinstance(lanes, str):
                 lanes = int(lanes)
@@ -153,6 +156,7 @@ class Roads():
             # unclear why. the link above gives some hint that
             # it's data misentry?
             d['lanes'] = max(lanes, 1)
+
 
             # track which edges we need to
             # impute `maxspeed` data for
@@ -173,9 +177,11 @@ class Roads():
                     impute_speeds[hw].append(maxspeed)
                 d['maxspeed'] = maxspeed
 
-            # estimate vehicle capacity
-            # TODO this is made up for now
-            capacity = math.ceil(d['length']/20 * d['lanes'])
+            # estimate vehicle capacity per lane
+            # length is in meters
+            # TODO assuming a car is 4.5m long on average
+            # should def consider other vehicles e.g. trucks, buses, etc
+            capacity = math.ceil(d['length']/4.5)
 
             d.update({
                 'occupancy': 0,
@@ -194,7 +200,10 @@ class Roads():
             try:
                 d['maxspeed'] = sum(speeds)/len(speeds)
             except ZeroDivisionError:
-                d['maxspeed'] = config.DEFAULT_ROAD_SPEED
+                if highway in ['disused', 'dummy']:
+                    d['maxspeed'] = 0
+                else:
+                    d['maxspeed'] = config.DEFAULT_ROAD_SPEEDS[highway]
 
     def _make_qt_index(self):
         """create the quadtree index"""
