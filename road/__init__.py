@@ -56,7 +56,7 @@ def lookup_place(place):
 class Roads():
     """manages the road network"""
 
-    def __init__(self, place, transit=None, distance=10000):
+    def __init__(self, place, transit=None, distance=10000, buffer=0):
         self.place = place
         self.transit = transit
         self.id = place.lower().replace(' ', '_')
@@ -64,9 +64,10 @@ class Roads():
         xmin, xmax, ymin, ymax = [float(p) for p in self.place_meta['boundingbox']] # lat lon
         self.bbox = (xmin, ymin, xmax, ymax)
 
-        if os.path.exists(os.path.join(ox.settings.data_folder, self.id)):
+        self.fname = '{}_{}_{}'.format(self.id, distance, buffer)
+        if os.path.exists(os.path.join(ox.settings.data_folder, self.fname)):
             logger.info('Loading existing network')
-            G = ox.load_graphml(self.id)
+            G = ox.load_graphml(self.fname)
         else:
             # the first search result isn't always what we want
             # so keep trying until we find something that clicks
@@ -75,13 +76,13 @@ class Roads():
             # rather than a shape, so we fall back to `graph_from_address`
             try:
                 logger.info('Downloading network')
-                G = ox.graph_from_place(place, network_type='drive', simplify=True)
+                G = ox.graph_from_place(place, network_type='drive', simplify=True, buffer_dist=buffer)
             except ValueError:
                 print('Shape was not found for "{}"'.format(place))
                 print('Falling back to address search at distance={}'.format(distance))
-                G = ox.graph_from_address(place, network_type='drive', simplify=True, distance=distance)
+                G = ox.graph_from_address(place, network_type='drive', simplify=True, distance=distance+buffer)
             G = ox.project_graph(G)
-            ox.save_graphml(G, filename=self.id)
+            ox.save_graphml(G, filename=self.fname)
 
         crs = G.graph['crs']
         self.utm_proj = pyproj.Proj(crs, preserve_units=True)
@@ -136,7 +137,7 @@ class Roads():
         logger.info('Preparing edges...')
         for e, d in tqdm(self.network.edges.items()):
             highway = d['highway']
-            if highway in ['disused', 'dummy']:
+            if highway in ['disused', 'dummy'] or d['length'] == 0:
                 to_remove.add(e)
                 continue
 

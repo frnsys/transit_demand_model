@@ -17,7 +17,12 @@ DEFAULT_ROAD_SPEEDS = {
     'primary': 110,
     'trunk': 110,
     'secondary': 80,
-    'tertiary': 60
+    'tertiary': 60,
+
+    # according to the OSM wiki (link above),
+    # the 'road' value is for an unknown type.
+    # defaulting to:
+    'road': 60
 }
 
 SPEED_FACTOR = 1

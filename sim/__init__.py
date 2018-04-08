@@ -44,6 +44,8 @@ class TransitSim(Sim):
         self.last_deps = {}
         self.delays = []
 
+        self.road_route_failures = set()
+
     def run(self, agents):
         self.queue_public_transit()
         self.queue_agents(agents)
@@ -71,6 +73,7 @@ class TransitSim(Sim):
                     # TODO just skipping for now
                     # likely because something is wrong with the road network
                     # see other place we are catching NoRoadRouteFound
+                    logger.warn('Ignoring no road route found! ({} -> {})'.format(agent.start, agent.end))
                     continue
                 veh = Vehicle(id=agent.id, route=route, passengers=[agent.id], current=None)
                 self.queue(agent.dep_time, partial(self.road_next, veh, lambda t: []))
@@ -89,7 +92,7 @@ class TransitSim(Sim):
         to the first stop.
         """
         logger.info('Preparing public transit vehicles...')
-        # valid_trips = sorted(list(self.router.valid_trips))[:100]
+        # valid_trips = sorted(list(self.router.valid_trips))[:500]
         valid_trips = self.router.valid_trips
         for trip_id, sched in tqdm(self.transit.trip_stops):
             # faster access as a list of dicts
@@ -202,7 +205,17 @@ class TransitSim(Sim):
             # it cant't find a path but there is a relatively
             # short one on OSM and Google Maps
             # import ipdb; ipdb.set_trace()
-            logger.warn('Ignoring no road route found!')
+            # self.transit.stops.loc[start]
+            # self.transit.stops.loc[end]
+            # get inferred stop position on road network
+            start_pt = (
+                self.roads.stops[start].pt.x,
+                self.roads.stops[start].pt.y)
+            end_pt = (
+                self.roads.stops[end].pt.x,
+                self.roads.stops[end].pt.y)
+            self.road_route_failures.add((start_pt, end_pt))
+            logger.warn('Ignoring no road route found! (STOP{} -> STOP{})'.format(start, end))
             return []
 
         # update route
