@@ -56,7 +56,7 @@ def lookup_place(place):
 class Roads():
     """manages the road network"""
 
-    def __init__(self, place, transit=None, distance=10000, buffer=0):
+    def __init__(self, place, transit=None, distance=10000, buffer=2000):
         self.place = place
         self.transit = transit
         self.id = place.lower().replace(' ', '_')
