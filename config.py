@@ -18,6 +18,7 @@ DEFAULT_ROAD_SPEEDS = {
     'trunk': 110,
     'secondary': 80,
     'tertiary': 60,
+    'services': 80,
 
     # according to the OSM wiki (link above),
     # the 'road' value is for an unknown type.

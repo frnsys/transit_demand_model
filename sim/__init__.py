@@ -1,3 +1,4 @@
+import enum
 import logging
 from .base import Sim
 from tqdm import tqdm
@@ -10,20 +11,24 @@ from gtfs import RouteType
 
 logger = logging.getLogger(__name__)
 
-Vehicle = recordclass('Vehicle', ['id', 'route', 'passengers', 'current'])
+Vehicle = recordclass('Vehicle', ['id', 'route', 'passengers', 'current', 'type'])
 Passenger = recordclass('Passenger', ['id', 'route'])
 Agent = recordclass('Agent', ['id', 'start', 'end', 'dep_time', 'public'])
 
-
 ACCEPTABLE_DELAY_MARGIN = 5*60
+
+class VehicleType(enum.Enum):
+    Public = 0
+    Private = 1
 
 
 class TransitSim(Sim):
-    def __init__(self, transit, router, roads, cache_routes=True):
+    def __init__(self, transit, router, roads, transit_roads, cache_routes=True):
         super().__init__()
         self.transit = transit
         self.router = router
         self.roads = roads
+        self.transit_roads = transit_roads
 
         # for loading/unloading public transit passengers
         self.stops = defaultdict(lambda: defaultdict(list))
@@ -37,7 +42,7 @@ class TransitSim(Sim):
 
         # track (road) vehicle trips,
         # for exporting (visualization) purposes
-        self.history = defaultdict(list)
+        # self.history = defaultdict(list)
 
         # for calibrating road network speed
         # to bus schedules
@@ -75,7 +80,7 @@ class TransitSim(Sim):
                     # see other place we are catching NoRoadRouteFound
                     logger.warn('Ignoring no road route found! ({} -> {})'.format(agent.start, agent.end))
                     continue
-                veh = Vehicle(id=agent.id, route=route, passengers=[agent.id], current=None)
+                veh = Vehicle(id=agent.id, route=route, passengers=[agent.id], current=None, type=VehicleType.Private)
                 self.queue(agent.dep_time, partial(self.road_next, veh, lambda t: []))
 
     def queue_public_transit(self):
@@ -107,11 +112,11 @@ class TransitSim(Sim):
             # queue all vehicles for this trip for this day
             for i, start in enumerate(self.transit.trip_starts[trip_id]):
                 id = '{}_{}'.format(trip_id, i)
-                veh = Vehicle(id=id, route=sched, passengers=defaultdict(list), current=-1)
+                veh = Vehicle(id=id, route=sched, passengers=defaultdict(list), current=-1, type=VehicleType.Public)
 
                 if type is RouteType.BUS:
                     # bus will calc route when it needs to
-                    road_vehicle = Vehicle(id='{}_ROAD'.format(id), route=[], passengers=[], current=None)
+                    road_vehicle = Vehicle(id='{}_ROAD'.format(id), route=[], passengers=[], current=None, type=VehicleType.Public)
                     action = partial(self.on_bus_arrive, road_vehicle)
                 else:
                     action = self.transit_next
@@ -198,7 +203,7 @@ class TransitSim(Sim):
             if self.cache_routes and (start, end) in self.route_cache:
                 route = self.route_cache[(start, end)][:]
             else:
-                route = self.roads.route_bus(start, end)
+                route = self.transit_roads.route_bus(start, end)
                 self.route_cache[(start, end)] = route[:]
         except NoRoadRouteFound:
             # TODO seems like something is wrong with the roads map
@@ -209,12 +214,12 @@ class TransitSim(Sim):
             # self.transit.stops.loc[end]
             # get inferred stop position on road network
             start_pt = (
-                self.roads.stops[start].pt.x,
-                self.roads.stops[start].pt.y)
+                self.transit_roads.stops[start].pt.x,
+                self.transit_roads.stops[start].pt.y)
             end_pt = (
-                self.roads.stops[end].pt.x,
-                self.roads.stops[end].pt.y)
-            self.road_route_failures.add((start_pt, end_pt))
+                self.transit_roads.stops[end].pt.x,
+                self.transit_roads.stops[end].pt.y)
+            self.road_route_failures.add(((start_pt, end_pt), (start, end)))
             logger.warn('Ignoring no road route found! (STOP{} -> STOP{})'.format(start, end))
             return []
 
@@ -268,7 +273,7 @@ class TransitSim(Sim):
             self.stops[dep_stop][trip_id].append((arr_stop, action))
             return []
 
-    def road_travel(self, path):
+    def road_travel(self, path, vehicle_type):
         """travel along road route"""
         # last node in path
         # is destination
@@ -276,7 +281,10 @@ class TransitSim(Sim):
             return
 
         leg = path[0]
-        edge = self.roads.network[leg.frm][leg.to][leg.edge_no]
+        if vehicle_type is VehicleType.Public:
+            edge = self.transit_roads.network[leg.frm][leg.to][leg.edge_no]
+        else:
+            edge = self.roads.network[leg.frm][leg.to][leg.edge_no]
 
         # where leg.p is the proportion of the edge we travel
         time = edge_travel_time(edge) * leg.p
@@ -294,7 +302,7 @@ class TransitSim(Sim):
             vehicle.route.pop(0)
 
         # compute next leg
-        leg = self.road_travel(vehicle.route)
+        leg = self.road_travel(vehicle.route, vehicle.type)
 
         # arrived
         if leg is None:
@@ -312,7 +320,7 @@ class TransitSim(Sim):
         vehicle.current = edge
 
         # cast to avoid errors with serializing numpy types
-        self.history[vehicle.id].append((float(time), float(travel_time), leg))
+        # self.history[vehicle.id].append((float(time), float(travel_time), leg))
 
         # return next event
         # TODO this assumes agents don't stop at

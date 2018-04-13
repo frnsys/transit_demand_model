@@ -10,6 +10,7 @@ from shapely.geometry import Point
 
 random.seed(0)
 logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger('main')
 
 
 def random_point(geo):
@@ -29,15 +30,26 @@ if __name__ == '__main__':
     place = 'Belo Horizonte, Brazil'
     gdf = ox.gdf_from_place(place)
     geo = gdf['geometry'].unary_union
+
+    logger.info('Preparing public transit data...')
     transit = Transit('data/gtfs/gtfs_bhtransit.zip')
+
+    logger.info('Preparing public transit router...')
     dt = datetime(year=2017, month=2, day=22, hour=10)
     router = transit.router_for_day(dt)
-    roads = Roads(place, transit=transit)
-    sim = TransitSim(transit, router, roads)
+
+    logger.info('Preparing public transit road network...')
+    transit_roads = Roads(place, transit=transit, type='drive_service', buffer=2000)
+
+    logger.info('Preparing private road network...')
+    roads = Roads(place, type='drive', buffer=2000)
+
+    logger.info('Preparing sim...')
+    sim = TransitSim(transit, router, roads, transit_roads)
 
     agents = []
-    n_agents = 200
-    # n_agents = 0
+    # n_agents = 200
+    n_agents = 0
     for i in range(n_agents):
         dep_time = random.randint(0, 60*60*24)
 

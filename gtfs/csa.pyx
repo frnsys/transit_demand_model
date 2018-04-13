@@ -48,6 +48,7 @@ cdef class CSA:
         self.n_stops += 1
 
         self.footpaths.reserve(len(footpaths))
+        self.footpaths.assign(len(footpaths), [])
         for stop, fps in footpaths.items():
             self.footpaths[stop] = fps
 

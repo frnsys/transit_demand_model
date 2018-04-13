@@ -56,7 +56,7 @@ def lookup_place(place):
 class Roads():
     """manages the road network"""
 
-    def __init__(self, place, transit=None, distance=10000, buffer=2000):
+    def __init__(self, place, transit=None, distance=10000, buffer=2000, type='drive'):
         self.place = place
         self.transit = transit
         self.id = place.lower().replace(' ', '_')
@@ -64,7 +64,7 @@ class Roads():
         xmin, xmax, ymin, ymax = [float(p) for p in self.place_meta['boundingbox']] # lat lon
         self.bbox = (xmin, ymin, xmax, ymax)
 
-        self.fname = '{}_{}_{}'.format(self.id, distance, buffer)
+        self.fname = '{}_{}_{}_{}'.format(self.id, type, distance, buffer)
         if os.path.exists(os.path.join(ox.settings.data_folder, self.fname)):
             logger.info('Loading existing network')
             G = ox.load_graphml(self.fname)
@@ -76,11 +76,11 @@ class Roads():
             # rather than a shape, so we fall back to `graph_from_address`
             try:
                 logger.info('Downloading network')
-                G = ox.graph_from_place(place, network_type='drive', simplify=True, buffer_dist=buffer)
+                G = ox.graph_from_place(place, network_type=type, simplify=True, buffer_dist=buffer, truncate_by_edge=True)
             except ValueError:
                 print('Shape was not found for "{}"'.format(place))
                 print('Falling back to address search at distance={}'.format(distance))
-                G = ox.graph_from_address(place, network_type='drive', simplify=True, distance=distance+buffer)
+                G = ox.graph_from_address(place, network_type=type, simplify=True, distance=distance+buffer, truncate_by_edge=True)
             G = ox.project_graph(G)
             ox.save_graphml(G, filename=self.fname)
 
@@ -116,11 +116,14 @@ class Roads():
     def _infer_transit_stops(self):
         """map public transit stops to road network positions"""
         self.stops = {}
+        # self.stops_debug = defaultdict(list)
         if self.transit is not None:
             logger.info('Inferring transit stop network positions...')
             for i, r in tqdm(self.transit.stops.iterrows(), total=len(self.transit.stops)):
                 coord = r.stop_lat, r.stop_lon
                 self.stops[i] = self.find_closest_edge(coord)
+                # self.stops_debug[i] = self.find_closest_edges(coord)[:10]
+        # import ipdb; ipdb.set_trace()
 
     def _prepare_network(self):
         """preprocess the network as needed"""
@@ -247,12 +250,27 @@ class Roads():
         as well as the closest point on that edge
         (described as a 0-1 position along that edge,
         e.g. 0.5 means halfway along that edge)"""
+        matches = self.find_closest_edges(coord)
+        idx = matches[0]
+        u, v, edge_no, edge_data = self.edges[idx]
+
+        # find closest point on closest edge
+        pt = self.to_xy(*coord)
+        pt = geometry.Point(*pt)
+        line = edge_data['geometry']
+        p = line.project(pt, normalized=True)
+        pt = line.interpolate(p, normalized=True)
+        edge = Edge(id=idx, frm=u, to=v, no=edge_no, data=edge_data, p=p, pt=pt)
+
+        return edge
+
+    def find_closest_edges(self, coord):
         pt = self.to_xy(*coord)
         pt = geometry.Point(*pt)
 
-        idx = None
+        matches = set()
         r = config.BOUND_RADIUS
-        while idx is None:
+        while not matches:
             bounds = coord[0]-r, coord[1]-r, coord[0]+r, coord[1]+r
 
             # find closest box
@@ -263,16 +281,8 @@ class Roads():
                 r *= 2 # expand search area
                 continue
 
-            idx = min(matches, key=lambda i: self.edges[i][-1]['geometry'].distance(pt))
-        u, v, edge_no, edge_data = self.edges[idx]
+            return sorted(matches, key=lambda i: self.edges[i][-1]['geometry'].distance(pt))
 
-        # find closest point on closest edge
-        line = edge_data['geometry']
-        p = line.project(pt, normalized=True)
-        pt = line.interpolate(p, normalized=True)
-        edge = Edge(id=idx, frm=u, to=v, no=edge_no, data=edge_data, p=p, pt=pt)
-
-        return edge
 
     def route(self, start, end):
         return self.router.route(start, end)

@@ -23,11 +23,7 @@ class TransitRouter:
         # reduce connections to only those for this day
         connections = [c for c in self.T.connections if self.T.trip_idx.id[c['trip_id']] in self.valid_trips]
 
-        # these need to be copied or we get a segfault?
-        # TODO look into this
-        footpaths_copy = {k: [dict(d) for d in v] for k, v in self.T.footpaths.items()}
-
-        self.csa = CSA(connections, footpaths_copy)
+        self.csa = CSA(connections, self.T.footpaths)
 
     def route(self, start_coord, end_coord, dep_time, closest_stops=3):
         """compute a trip-level route between
