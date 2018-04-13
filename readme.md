@@ -17,7 +17,6 @@
 
 ## Setup
 
-- Install dependencies: `sudo apt install libspatialindex-dev`
 - Install requirements: `pip install -r requirements.txt`
 - Build `cython` extensions: `python setup.py build_ext --inplace`
 - Change config values if desired, in `config.py`
