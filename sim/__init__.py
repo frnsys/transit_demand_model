@@ -197,6 +197,13 @@ class TransitSim(Sim):
             # trip is done
             return events
 
+        # so we don't double-leave the current edge
+        # otherwise we get negative occupancies in roads
+        road_vehicle.current = None
+
+        # setup on arrive trigger
+        on_arrive = partial(self.on_bus_arrive, road_vehicle, transit_vehicle)
+
         # figure out road route
         try:
             start, end = cur_stop['stop_id'], next_stop['stop_id']
@@ -205,13 +212,17 @@ class TransitSim(Sim):
             else:
                 route = self.transit_roads.route_bus(start, end)
                 self.route_cache[(start, end)] = route[:]
+
+            # update route
+            road_vehicle.route = route
+
+            # override last event
+            events[-1] = (time_to_dep, partial(self.road_next, road_vehicle, on_arrive))
         except NoRoadRouteFound:
-            # TODO seems like something is wrong with the roads map
-            # it cant't find a path but there is a relatively
-            # short one on OSM and Google Maps
-            # import ipdb; ipdb.set_trace()
-            # self.transit.stops.loc[start]
-            # self.transit.stops.loc[end]
+            # this seems to occur if the GTFS bus stop lat/lons
+            # are inaccurate, so when we map the stop position to
+            # a road network position, it maps incorrectly.
+
             # get inferred stop position on road network
             start_pt = (
                 self.transit_roads.stops[start].pt.x,
@@ -220,21 +231,15 @@ class TransitSim(Sim):
                 self.transit_roads.stops[end].pt.x,
                 self.transit_roads.stops[end].pt.y)
             self.road_route_failures.add(((start_pt, end_pt), (start, end)))
-            logger.warn('Ignoring no road route found! (STOP{} -> STOP{})'.format(start, end))
-            return []
+            logger.warn('Ignoring no road route found! (STOP{} -> STOP{}) Falling back to bus schedule.'.format(start, end))
 
-        # update route
-        road_vehicle.route = route
+            # as a fallback, just assume the bus arrives on time
+            # this is really not ideal, because we pull the bus out of traffic
+            # and so it becomes unaffected by congestion, and can't participate
+            # in congestion
+            scheduled_travel_time = next_stop['arr_sec'] - cur_stop['dep_sec']
+            events[-1] = (time_to_dep, lambda time: [(scheduled_travel_time, on_arrive)])
 
-        # so we don't double-leave the current edge
-        # otherwise we get negative occupancies in roads
-        road_vehicle.current = None
-
-        # setup on arrive trigger
-        on_arrive = partial(self.on_bus_arrive, road_vehicle, transit_vehicle)
-
-        # override last event
-        events[-1] = (time_to_dep, partial(self.road_next, road_vehicle, on_arrive))
         return events
 
 
