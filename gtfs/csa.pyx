@@ -1,3 +1,4 @@
+# distutils: language=c++
 # TODO: Multicritera CSA (mcCSA)
 # CSA: <http://i11www.iti.kit.edu/extra/publications/dpsw-isftr-13.pdf>
 # Reference implementation: <https://github.com/dbsystel/practical-csa/tree/master/src/main/scala/algorithm>
@@ -6,6 +7,7 @@ from libcpp cimport bool
 from libcpp.vector cimport vector
 from libcpp.map cimport map
 from numpy.math cimport INFINITY
+from cython.parallel import prange
 
 ctypedef unsigned int Stop
 
@@ -58,7 +60,20 @@ cdef class CSA:
     def n_connections(self):
         return self.connections.size()
 
-    cpdef route(self, unsigned int start, unsigned int end, double dep_time):
+    cdef vector[Connection] route(self, unsigned int start, unsigned int end, double dep_time) nogil:
+        cdef:
+            vector[Connection] in_connections
+            vector[Connection] route
+
+        in_connections = self._route(start, end, dep_time)
+
+        if in_connections.empty():
+            return route
+
+        route = build_route(start, end, in_connections)
+        return route # , route[-1]['arr_time'] - dep_time
+
+    cdef vector[Connection] _route(self, unsigned int start, unsigned int end, double dep_time) nogil:
         cdef:
             int in_idx
             Connection c
@@ -90,31 +105,62 @@ cdef class CSA:
                 break
 
         if earliest_arrivals[end] == INFINITY:
-            return None, None
+            in_connections.clear()
 
-        # build route and return (route, travel time)
-        cdef list route = build_route(start, end, in_connections)
-        return route, route[-1]['arr_time'] - dep_time
+        return in_connections
+
+    cpdef route_many(self, vector[unsigned int] starts, vector[unsigned int] ends, vector[double] dep_times):
+        cdef:
+            unsigned int i
+            unsigned int n = len(starts)
+            vector[vector[Connection]] results
+
+        results.assign(len(starts), [])
+        for i in prange(n, nogil=True):
+            results[i] = self.route(starts[i], ends[i], dep_times[i])
+        return results
 
 
-cdef list build_route(unsigned int start, unsigned int end, vector[Connection] in_connections):
+cdef vector[Connection] build_route(unsigned int start, unsigned int end, vector[Connection] in_connections) nogil:
     # build out the route to return
     # consisting of only start, end, and transfer connections
     cdef:
+        vector[Connection] route
         Connection c = in_connections[end]
-        list route = [c]
 
+    route.push_back(c)
     while c.dep_stop != start:
         next_c = in_connections[c.dep_stop]
         if c.type != next_c.type or c.trip_id != next_c.trip_id:
-            route.append(c)
+            route.push_back(c)
         c = next_c
-    route.append(c)
+    route.push_back(c)
+
     # reverse order
-    return route[::-1]
+    # return route[::-1]
+    # TODO
+    return route
+
+# https://github.com/cython/cython/issues/1642
+cdef Connection make_connection(
+    Stop dep_stop,
+    double dep_time,
+    Stop arr_stop,
+    double arr_time,
+    ConnectionType type,
+    int trip_id
+) nogil:
+    cdef Connection c
+    c.dep_stop = dep_stop
+    c.dep_time = dep_time
+    c.arr_stop = arr_stop
+    c.arr_time = arr_time
+    c.type = type
+    c.trip_id = trip_id
+    return c
 
 
-cdef expand_footpaths(Connection c, vector[Footpath] footpaths, vector[Connection] in_connections):
+cdef void expand_footpaths(Connection c, vector[Footpath] footpaths, vector[Connection] in_connections) nogil:
     # scan outgoing footpaths from the arrival stop
     # note: path.dep_stop == con.arr_stop
     cdef:
@@ -125,17 +171,17 @@ cdef expand_footpaths(Connection c, vector[Footpath] footpaths, vector[Connectio
         # to see if this footpath gets there faster than it
         best_con = in_connections[path.arr_stop]
         if best_con.type == ConnectionType.empty or c.arr_time + path.time < best_con.arr_time:
-            in_connections[path.arr_stop] = Connection(
-                dep_stop=path.dep_stop,
-                arr_stop=path.arr_stop,
-                dep_time=c.arr_time,
-                arr_time=c.arr_time + path.time,
-                trip_id=-1,
-                type=ConnectionType.foot
+            in_connections[path.arr_stop] = make_connection(
+                path.dep_stop,
+                c.arr_time,
+                path.arr_stop,
+                c.arr_time + path.time,
+                ConnectionType.foot,
+                -1,
             )
 
 
-cdef bool is_reachable(Connection c, unsigned int start, double earliest_arrival, Connection in_con):
+cdef bool is_reachable(Connection c, unsigned int start, double earliest_arrival, Connection in_con) nogil:
     # connection c is reachable if:
     # (it departs from our starting stop OR the best connection to c's
     #   departing stop connects to this connection) AND
@@ -144,7 +190,7 @@ cdef bool is_reachable(Connection c, unsigned int start, double earliest_arrival
     return c.dep_time >= earliest_arrival and (c.dep_stop == start or connects(in_con, c))
 
 
-cdef bool connects(Connection in_con, Connection c):
+cdef bool connects(Connection in_con, Connection c) nogil:
     # if this is a trip connection, we can reach the trip if either:
     # - c is on the same trip as the incoming connection
     # - we can transfer to c in time

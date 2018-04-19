@@ -32,8 +32,12 @@ class TransitRouter:
         # returned as [(iid, time), ...]
         # NB here we assume people have no preference b/w transit mode,
         # i.e. they are equally likely to choose a bus stop or a subway stop.
-        start_stops = dict(self.T.closest_stops(start_coord, n=closest_stops))
-        end_stops = dict(self.T.closest_stops(end_coord, n=closest_stops))
+        start_stops = {
+            self.T.stop_idx.idx[stop_id]: walk_time for stop_id, walk_time in self.T.closest_stops(start_coord, n=closest_stops)
+        }
+        end_stops = {
+            self.T.stop_idx.idx[stop_id]: walk_time for stop_id, walk_time in self.T.closest_stops(end_coord, n=closest_stops)
+        }
         same_stops = set(start_stops.keys()) & set(end_stops.keys())
 
         # if a same stop is in start and end stops,
@@ -46,12 +50,37 @@ class TransitRouter:
 
         # find best combination of start/end stops
         best = (None, np.inf)
+        starts = []
+        ends = []
+        dep_times = []
+        walk_times = []
         for (s_stop, s_walk), (e_stop, e_walk) in product(start_stops.items(), end_stops.items()):
-            route, time = self.route_stops(s_stop, e_stop, dep_time)
-            if route is not None:
-                time = s_walk + time + e_walk
-                if time < best[1]:
-                    best = route, time
+            starts.append(s_stop)
+            ends.append(e_stop)
+            dep_times.append(dep_time)
+            walk_times.append(s_walk + e_walk)
+        assert len(starts) == len(ends)
+        assert len(starts) == len(dep_times)
+        routes = self.csa.route_many(starts, ends, dep_times)
+
+        # NOTE each route is reversed
+        for i, route in enumerate(routes):
+            # empty route means no route found
+            if not route:
+                continue
+            # time = route[-1]['arr_time'] - dep_time
+            time = route[0]['arr_time'] - dep_times[i]
+            time = time + walk_times[i]
+            if time < best[1]:
+                best = route[::-1], time
+
+        # for (s_stop, s_walk), (e_stop, e_walk) in product(start_stops.items(), end_stops.items()):
+        #     route, time = self.route_stops(s_stop, e_stop, dep_time)
+        #     if route is not None:
+        #         time = s_walk + time + e_walk
+        #         if time < best[1]:
+        #             best = route, time
+
         route, time = best
         if route is None:
             raise NoTransitRouteFound
@@ -68,8 +97,5 @@ class TransitRouter:
                 time=l['time'])
             for l in route], time
 
-    def route_stops(self, start_stop, end_stop, dep_time):
-        start = self.T.stop_idx.idx[start_stop]
-        end = self.T.stop_idx.idx[end_stop]
-        return self.csa.route(start, end, dep_time)
-
+    def route_stops(self, start_idx, end_idx, dep_time):
+        return self.csa.route(start_idx, end_idx, dep_time)
