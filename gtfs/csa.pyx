@@ -27,6 +27,10 @@ ctypedef struct Footpath:
     Stop arr_stop
     double time
 
+ctypedef struct Route:
+    vector[Connection] path
+    double time
+
 cdef double BASE_TRANSFER_TIME = 120
 
 cdef class CSA:
@@ -60,18 +64,22 @@ cdef class CSA:
     def n_connections(self):
         return self.connections.size()
 
-    cdef vector[Connection] route(self, unsigned int start, unsigned int end, double dep_time) nogil:
+    cdef Route route(self, unsigned int start, unsigned int end, double dep_time, double walk_time) nogil:
         cdef:
+            Route route = make_route()
             vector[Connection] in_connections
-            vector[Connection] route
+            vector[Connection] path
 
         in_connections = self._route(start, end, dep_time)
 
         if in_connections.empty():
             return route
 
-        route = build_route(start, end, in_connections)
-        return route # , route[-1]['arr_time'] - dep_time
+        # NOTE this route is backward
+        path = build_route(start, end, in_connections)
+        route.path = path
+        route.time = path[0].arr_time - dep_time + walk_time
+        return route
 
     cdef vector[Connection] _route(self, unsigned int start, unsigned int end, double dep_time) nogil:
         cdef:
@@ -109,16 +117,26 @@ cdef class CSA:
 
         return in_connections
 
-    cpdef route_many(self, vector[unsigned int] starts, vector[unsigned int] ends, vector[double] dep_times):
+    cpdef Route route_many(self, vector[unsigned int] starts, vector[unsigned int] ends, vector[double] dep_times, vector[double] walk_times):
         cdef:
-            unsigned int i
-            unsigned int n = len(starts)
-            vector[vector[Connection]] results
+            int i
+            unsigned int j
+            unsigned int n = starts.size()
+            vector[Route] routes
+            double best_time = INFINITY
+            Route best_route
 
-        results.assign(len(starts), [])
+        # NOTE these routes are expected to be backwards
+        routes.assign(n, make_route())
         for i in prange(n, nogil=True):
-            results[i] = self.route(starts[i], ends[i], dep_times[i])
-        return results
+            routes[i] = self.route(starts[i], ends[i], dep_times[i], walk_times[i])
+
+        for j in range(routes.size()):
+            if routes[i].time < best_time:
+                best_time = routes[i].time
+                best_route = routes[i]
+
+        return best_route
 
 
 cdef vector[Connection] build_route(unsigned int start, unsigned int end, vector[Connection] in_connections) nogil:
@@ -139,6 +157,7 @@ cdef vector[Connection] build_route(unsigned int start, unsigned int end, vector
     # reverse order
     # return route[::-1]
     # TODO
+    # NOTE this route is backward
     return route
 
 # https://github.com/cython/cython/issues/1642
@@ -159,6 +178,10 @@ cdef Connection make_connection(
     c.trip_id = trip_id
     return c
 
+cdef Route make_route() nogil:
+    cdef Route r
+    r.time = INFINITY
+    return r
 
 cdef void expand_footpaths(Connection c, vector[Footpath] footpaths, vector[Connection] in_connections) nogil:
     # scan outgoing footpaths from the arrival stop

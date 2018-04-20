@@ -1,5 +1,4 @@
 import config
-import numpy as np
 from . import util
 from .csa import CSA
 from itertools import product
@@ -49,7 +48,6 @@ class TransitRouter:
             return [WalkLeg(time=walk_time)], walk_time
 
         # find best combination of start/end stops
-        best = (None, np.inf)
         starts = []
         ends = []
         dep_times = []
@@ -59,31 +57,13 @@ class TransitRouter:
             ends.append(e_stop)
             dep_times.append(dep_time)
             walk_times.append(s_walk + e_walk)
-        assert len(starts) == len(ends)
-        assert len(starts) == len(dep_times)
-        routes = self.csa.route_many(starts, ends, dep_times)
 
-        # NOTE each route is reversed
-        for i, route in enumerate(routes):
-            # empty route means no route found
-            if not route:
-                continue
-            # time = route[-1]['arr_time'] - dep_time
-            time = route[0]['arr_time'] - dep_times[i]
-            time = time + walk_times[i]
-            if time < best[1]:
-                best = route[::-1], time
-
-        # for (s_stop, s_walk), (e_stop, e_walk) in product(start_stops.items(), end_stops.items()):
-        #     route, time = self.route_stops(s_stop, e_stop, dep_time)
-        #     if route is not None:
-        #         time = s_walk + time + e_walk
-        #         if time < best[1]:
-        #             best = route, time
-
-        route, time = best
-        if route is None:
+        route = self.csa.route_many(starts, ends, dep_times, walk_times)
+        if not route['path']:
             raise NoTransitRouteFound
+
+        time = route['time']
+        route = route['path'][::-1]
         return [
             TransitLeg(
                 dep_stop=l['dep_stop'],
