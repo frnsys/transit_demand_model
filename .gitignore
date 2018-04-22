@@ -5,4 +5,5 @@ node_modules
 viz/assets/*.json
 viz/token.js
 *.cpp
+*.c
 *.so

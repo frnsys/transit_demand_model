@@ -6,11 +6,11 @@ reference:
 - this repo has some functionality, but no py3 support yet: <https://github.com/google/transitfeed>
 """
 
-import math
 import zipfile
 import pandas as pd
 from io import StringIO
 from datetime import timedelta
+from .haversine import haversine
 
 
 def load_gtfs(path):
@@ -32,12 +32,8 @@ def walking_time(coord_a, coord_b, delta_base, speed_kmh):
     - `speed_kmh`: walking speed in km/h
     adapted from: <https://github.com/mk-fg/trip-based-public-transit-routing-algo/blob/master/tb_routing/gtfs.py#L198>"""
     # Alternative: use UTM coordinates and KDTree (e.g. scipy) or spatial dbs
-    lon1, lat1, lon2, lat2 = (
-        math.radians(float(v)) for v in
-        [coord_a[0], coord_a[1], coord_b[0], coord_b[1]] )
-    km = 6367 * 2 * math.asin(math.sqrt(
-        math.sin((lat2 - lat1)/2)**2 +
-        math.cos(lat1) * math.cos(lat2) * math.sin((lon2 - lon1)/2)**2 ))
+    # lat, lon ordering
+    km = haversine(coord_a[0], coord_a[1], coord_b[0], coord_b[1])
     return delta_base + km / speed_kmh
 
 

@@ -13,7 +13,8 @@ logger = logging.getLogger(__name__)
 
 Vehicle = recordclass('Vehicle', ['id', 'route', 'passengers', 'current', 'type'])
 Passenger = recordclass('Passenger', ['id', 'route'])
-Agent = recordclass('Agent', ['id', 'start', 'end', 'dep_time', 'public'])
+Stop = recordclass('Stop', ['start', 'end', 'dep_time'])
+Agent = recordclass('Agent', ['id', 'stops', 'public'])
 
 ACCEPTABLE_DELAY_MARGIN = 5*60
 
@@ -56,32 +57,49 @@ class TransitSim(Sim):
         self.queue_agents(agents)
         super().run()
 
+    def route_agent(self, agent):
+        if not agent.stops:
+            return
+
+        stop = agent.stops.pop(0)
+
+        # if there are stops remaining
+        # schedule the next stop for on arrival
+        if agent.stops:
+            on_arrive = lambda t: [self.route_agent(agent)]
+        else:
+            on_arrive = lambda t: []
+
+        if agent.public:
+            try:
+                route, time = self.router.route(stop.start, stop.end, stop.dep_time)
+                pas = Passenger(id=agent.id, route=route)
+                return stop.dep_time, partial(self.passenger_next, pas, on_arrive)
+            except NoTransitRouteFound:
+                # TODO just skipping for now
+                # this has happened because the departure time
+                # is late and we don't project schedules into the next day
+                return
+        else:
+            try:
+                route = self.roads.route(stop.start, stop.end)
+            except NoRoadRouteFound:
+                # TODO just skipping for now
+                # likely because something is wrong with the road network
+                # see other place we are catching NoRoadRouteFound
+                logger.warn('Ignoring no road route found! ({} -> {})'.format(stop.start, stop.end))
+                return
+            veh = Vehicle(id=agent.id, route=route, passengers=[agent.id], current=None, type=VehicleType.Private)
+            return stop.dep_time, partial(self.road_next, veh, on_arrive)
+
     def queue_agents(self, agents):
         """queue agents trip,
         which may be via car or public transit"""
         logger.info('Preparing agents...')
         for agent in tqdm(agents):
-            if agent.public:
-                try:
-                    route, time = self.router.route(agent.start, agent.end, agent.dep_time)
-                    pas = Passenger(id=agent.id, route=route)
-                    self.queue(agent.dep_time, partial(self.passenger_next, pas))
-                except NoTransitRouteFound:
-                    # TODO just skipping for now
-                    # this has happened because the departure time
-                    # is late and we don't project schedules into the next day
-                    continue
-            else:
-                try:
-                    route = self.roads.route(agent.start, agent.end)
-                except NoRoadRouteFound:
-                    # TODO just skipping for now
-                    # likely because something is wrong with the road network
-                    # see other place we are catching NoRoadRouteFound
-                    logger.warn('Ignoring no road route found! ({} -> {})'.format(agent.start, agent.end))
-                    continue
-                veh = Vehicle(id=agent.id, route=route, passengers=[agent.id], current=None, type=VehicleType.Private)
-                self.queue(agent.dep_time, partial(self.road_next, veh, lambda t: []))
+            ev = self.route_agent(agent)
+            if ev is not None:
+                self.queue(*ev)
 
     def queue_public_transit(self):
         """
@@ -243,16 +261,16 @@ class TransitSim(Sim):
         return events
 
 
-    def passenger_next(self, passenger, time):
+    def passenger_next(self, passenger, on_arrive, time):
         """action for individual public transit passengers"""
         try:
             leg = passenger.route.pop(0)
         except IndexError:
             logger.debug('[{}] {} Arrived'.format(time, passenger.id))
-            return []
+            return on_arrive(time)
 
         # setup next action
-        action = partial(self.passenger_next, passenger)
+        action = partial(self.passenger_next, passenger, on_arrive)
 
         if isinstance(leg, WalkLeg):
             logger.debug('[{}] {} Walking'.format(time, passenger.id))

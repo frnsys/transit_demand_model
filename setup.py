@@ -12,6 +12,10 @@ ext_modules = [
         extra_link_args=['-fopenmp'],
     ),
     Extension(
+        'gtfs.haversine',
+        ['gtfs/haversine.pyx']
+    ),
+    Extension(
         'road.quadtree',
         ['road/quadtree.pyx']
     )
