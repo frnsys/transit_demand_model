@@ -90,7 +90,7 @@ def run(place, gtfs_path, sim_output_path, sim_date, debug):
             # TODO need to get consistent about coordinate ordering!
             # though not alone: <https://stackoverflow.com/a/13579921/1097920>
             # we are using lat, lon ordering
-            x, y, house_id, firm_id = agent
+            x, y, house_id, firm_id, last_wage = agent
             start = y, x
 
             # check if agent is within bounds
