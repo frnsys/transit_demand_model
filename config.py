@@ -37,3 +37,5 @@ BOUND_RADIUS = 0.001
 
 # +/- 0.61km
 GEOHASH_PRECISION = 6
+
+OUTPUT_PATH = '/tmp/seal_transit'

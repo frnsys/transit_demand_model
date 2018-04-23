@@ -184,9 +184,13 @@ class Roads():
             # should def consider other vehicles e.g. trucks, buses, etc
             capacity = math.ceil(d['length']/4.5)
 
+            id = d['osmid']
+            if isinstance(id, list):
+                id = '_'.join(str(p) for p in id)
             d.update({
+                'id': id,
                 'occupancy': 0,
-                'capacity': capacity
+                'capacity': capacity,
             })
 
         # impute missing speeds

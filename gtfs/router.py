@@ -24,13 +24,15 @@ class TransitRouter:
 
         self.csa = CSA(connections, self.T.footpaths)
 
-    def route(self, start_coord, end_coord, dep_time, closest_stops=3):
+    def route(self, start_coord, end_coord, dep_time, closest_stops=2):
         """compute a trip-level route between
         a start and an end stop for a given datetime"""
         # candidate start and end stops,
         # returned as [(iid, time), ...]
         # NB here we assume people have no preference b/w transit mode,
         # i.e. they are equally likely to choose a bus stop or a subway stop.
+        # increasing the closest stops will increase likelihood of finding best
+        # route, but also significantly increases routing time
         start_stops = {
             self.T.stop_idx.idx[stop_id]: walk_time for stop_id, walk_time in self.T.closest_stops(start_coord, n=closest_stops)
         }
