@@ -1,4 +1,5 @@
 import enum
+import config
 import logging
 from .base import Sim
 from tqdm import tqdm
@@ -16,7 +17,6 @@ Passenger = recordclass('Passenger', ['id', 'route'])
 Stop = recordclass('Stop', ['start', 'end', 'dep_time', 'type'])
 Agent = recordclass('Agent', ['id', 'stops', 'public'])
 
-ACCEPTABLE_DELAY_MARGIN = 5*60
 
 class VehicleType(enum.Enum):
     Public = 0
@@ -221,11 +221,10 @@ class TransitSim(Sim):
                 scheduled_travel_time = cur_stop['arr_sec'] - last_stop['dep_sec']
                 actual_travel_time = time - last_dep
                 delay = actual_travel_time - scheduled_travel_time
+
                 # for calibration, want to take the absolute value
-                if abs(delay) > ACCEPTABLE_DELAY_MARGIN:
-                # otherwise:
-                # if delay > ACCEPTABLE_DELAY_MARGIN:
-                    # print('TRAVEL EXCEPTION: {:.2f}min'.format(delay/60))
+                if abs(delay) > config.ACCEPTABLE_DELAY_MARGIN:
+                    logger.warn('BUS TRAVEL EXCEPTION: DELAYED {:.2f}min'.format(delay/60))
                     self.delays.append(delay)
 
         # prepare to depart

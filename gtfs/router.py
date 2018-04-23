@@ -22,7 +22,7 @@ class TransitRouter:
         # reduce connections to only those for this day
         connections = [c for c in self.T.connections if self.T.trip_idx.id[c['trip_id']] in self.valid_trips]
 
-        self.csa = CSA(connections, self.T.footpaths)
+        self.csa = CSA(connections, self.T.footpaths, config.BASE_TRANSFER_TIME)
 
     def route(self, start_coord, end_coord, dep_time, closest_stops=2):
         """compute a trip-level route between
@@ -46,7 +46,7 @@ class TransitRouter:
         if same_stops:
             walk_time = util.walking_time(
                 start_coord, end_coord,
-                config.footpath_delta_base, config.footpath_speed_kmh)
+                config.FOOTPATH_DELTA_BASE, config.FOOTPATH_SPEED_KMH)
             return [WalkLeg(time=walk_time)], walk_time
 
         # find best combination of start/end stops

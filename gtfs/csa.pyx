@@ -31,19 +31,19 @@ ctypedef struct Route:
     vector[Connection] path
     double time
 
-cdef double BASE_TRANSFER_TIME = 120
-
 cdef class CSA:
     cdef:
         int n_stops
+        double base_transfer_time
         Connection no_connection
         vector[Connection] connections
         vector[vector[Footpath]] footpaths
 
-    def __init__(self, list connections, dict footpaths):
+    def __init__(self, list connections, dict footpaths, double base_transfer_time):
         # NOTE: this assumes that connections is sorted by dep time, ascending
         self.n_stops = 0
         self.connections.reserve(len(connections))
+        self.base_transfer_time = base_transfer_time
         for i, con in enumerate(connections):
             if con['dep_stop'] > self.n_stops:
                 self.n_stops = con['dep_stop']
@@ -100,7 +100,7 @@ cdef class CSA:
 
             # check if c is reachable given current connections,
             # and if so, check if it improves current arrival times
-            if is_reachable(c, start, earliest_arrivals[c.dep_stop], in_connections[c.dep_stop]) \
+            if is_reachable(c, start, earliest_arrivals[c.dep_stop], in_connections[c.dep_stop], self.base_transfer_time) \
                 and c.arr_time < earliest_arrivals[c.arr_stop]:
                 in_connections[c.arr_stop] = c
                 earliest_arrivals[c.arr_stop] = c.arr_time
@@ -204,22 +204,22 @@ cdef void expand_footpaths(Connection c, vector[Footpath] footpaths, vector[Conn
             )
 
 
-cdef bool is_reachable(Connection c, unsigned int start, double earliest_arrival, Connection in_con) nogil:
+cdef bool is_reachable(Connection c, unsigned int start, double earliest_arrival, Connection in_con, double base_transfer_time) nogil:
     # connection c is reachable if:
     # (it departs from our starting stop OR the best connection to c's
     #   departing stop connects to this connection) AND
     #   it departs at or after our earliest arrival to c's departure stop (that
     #   is, we arrive to the stop before the connection departs)
-    return c.dep_time >= earliest_arrival and (c.dep_stop == start or connects(in_con, c))
+    return c.dep_time >= earliest_arrival and (c.dep_stop == start or connects(in_con, c, base_transfer_time))
 
 
-cdef bool connects(Connection in_con, Connection c) nogil:
+cdef bool connects(Connection in_con, Connection c, double base_transfer_time) nogil:
     # if this is a trip connection, we can reach the trip if either:
     # - c is on the same trip as the incoming connection
     # - we can transfer to c in time
     if in_con.type == ConnectionType.trip:
         return (in_con.trip_id == c.trip_id \
-            or in_con.arr_time <= c.dep_time - BASE_TRANSFER_TIME)
+            or in_con.arr_time <= c.dep_time - base_transfer_time)
 
     # if this a foot connection, we just have to check
     # that we arrive before connection c departs

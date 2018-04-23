@@ -44,7 +44,7 @@ The transit simulation will be run once for `start.json` and once for `end.json`
 - We are currently only considering work commutes.
     - We estimate commute time by assuming average speed of 80km/h and using the point-to-point distance from an agent's home to their firm, then have agents leave to arrive somewhere between 7-9am, based on this estimated commute time.
 - Road capacity is estimated by heuristic, see `road/__init__.py`, where `capacity` is set.
-- OpenStreetMap data is fairly incomplete, so we are missing speed information about many roads, and try to estimate them based on similar roads.
+- OpenStreetMap data is fairly incomplete, so we are missing speed information about many roads, and try to estimate them based on similar roads. There are `DEFAULT_ROAD_SPEED` configuration options in `config.py` to influence these estimates.
 - The GTFS lat, lon of bus stops may not be very accurate, which causes buses to be mapped to incorrect roads. This can cause routing problems. As a fallback, if a route cannot be found between two bus stops, we just use the scheduled travel time.
     - E.g. if the schedule says the bus departs from stop X at 10:00 and arrives at it's next stop Y at 10:15, and we can't find a route through the road network between these stops, we assume it takes 15min to travel between those stops. So if the stop is delayed and arrives at stop X at 10:02, and we just say that the bus will arrive at stop Y at 10:17.
 - Footpaths between transit stops are considered just as point-to-point distances, using the `FOOTPATH` related options in `config.py`.

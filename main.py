@@ -27,15 +27,17 @@ def split_path(path, splits=2):
 
 @click.command()
 @click.argument('place')
+@click.argument('gtfs_path')
 @click.argument('sim_output_path')
-@click.argument('sim_datetime')
+@click.argument('sim_date')
 @click.option('--debug', is_flag=True)
-def run(place, sim_output_path, sim_datetime, debug):
+def run(place, gtfs_path, sim_output_path, sim_date, debug):
     """
     Example params:
     place = 'Belo Horizonte, Brazil'
+    gtfs_path = 'data/gtfs/gtfs_bhtransit.zip'
     sim_output_path = '/tmp/seal/run__2018-04-22T14_43_51.895867/0'
-    sim_datetime = '22/2/2017 10:00'
+    sim_date = '22/2/2017'
 
     If debug=True:
         collects some debugging data for routing
@@ -46,7 +48,7 @@ def run(place, sim_output_path, sim_datetime, debug):
     START = time()
 
     # TODO select date based on simulation data?
-    dt = parser.parse(sim_datetime)
+    dt = parser.parse(sim_date)
 
     # generate sim name based on sim output path
     # so we can associate this transit simulation
@@ -66,7 +68,7 @@ def run(place, sim_output_path, sim_datetime, debug):
     geo = gdf['geometry'].unary_union
 
     logger.info('Preparing public transit data...')
-    transit = Transit('data/gtfs/gtfs_bhtransit.zip')
+    transit = Transit(gtfs_path)
 
     logger.info('Preparing public transit router...')
     router = transit.router_for_day(dt)
