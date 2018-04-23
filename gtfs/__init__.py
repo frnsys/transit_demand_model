@@ -36,7 +36,7 @@ class Transit:
         self.calendar = Calendar(gtfs)
         self._process_gtfs(gtfs)
         self._kdtree = self._index_stops(self.stops)
-        self.footpaths = self._compute_footpaths(gtfs, config.closest_indirect_transfers)
+        self.footpaths = self._compute_footpaths(gtfs, config.CLOSEST_INDIRECT_TRANSFERS)
         self.connections = self._compute_connections(gtfs)
         logger.info('Done')
 
@@ -147,7 +147,7 @@ class Transit:
             neighbors = neighbors[1:]
 
             # filter out long transfers
-            neighbors = [n for n in neighbors if n[1] <= config.footpath_delta_max]
+            neighbors = [n for n in neighbors if n[1] <= config.FOOTPATH_DELTA_MAX]
 
             footpaths[self.stop_idx.idx[stop.stop_id]] = [{
                 'dep_stop': self.stop_idx.idx[stop.stop_id],
@@ -170,7 +170,7 @@ class Transit:
         times = [
             (stop.Index, util.walking_time(
                 coord, (stop.stop_lat, stop.stop_lon),
-                config.footpath_delta_base, config.footpath_speed_kmh))
+                config.FOOTPATH_DELTA_BASE, config.FOOTPATH_SPEED_KMH))
             for stop in stops.itertuples()]
 
         # pair as `(stop_id, time)`

@@ -1,8 +1,16 @@
-base_transfer_time = 2*60 # lower-bound time-delta overhead for changing trips
-footpath_delta_base = 2*60 # footpath_delta = delta_base + km / speed_kmh
-footpath_speed_kmh = 5 / 3600
-footpath_delta_max = 7*60 # all footpaths longer than that are discarded as invalid
-closest_indirect_transfers = 5
+# lower-bound time-delta overhead for changing trips
+BASE_TRANSFER_TIME = 2*60
+
+# footpath_delta = delta_base + km / speed_kmh
+FOOTPATH_DELTA_BASE = 2*60
+FOOTPATH_SPEED_KMH = 5 / 3600
+
+# all footpaths longer than that are discarded as invalid
+FOOTPATH_DELTA_MAX = 7*60
+
+# generates footpath transfers between this
+# amount of nearby transit stops
+CLOSEST_INDIRECT_TRANSFERS = 5
 
 # max speed used if one is not specified or one cannot
 # be estimated for a road segment
@@ -26,7 +34,14 @@ DEFAULT_ROAD_SPEEDS = {
     'road': 60
 }
 
+# scale travel speeds by this amount
 SPEED_FACTOR = 1
+
+# how much a bus can be delayed (+/-)
+# if the delay is greater than this amount,
+# and the --debug flag is used,
+# then the simulation will log a warning
+ACCEPTABLE_DELAY_MARGIN = 5*60
 
 # how far around a point to search for
 # closest edges.
@@ -36,4 +51,7 @@ SPEED_FACTOR = 1
 BOUND_RADIUS = 0.001
 
 # +/- 0.61km
+# for using zones
 GEOHASH_PRECISION = 6
+
+OUTPUT_PATH = '/tmp/seal_transit'

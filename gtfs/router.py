@@ -1,5 +1,4 @@
 import config
-import numpy as np
 from . import util
 from .csa import CSA
 from itertools import product
@@ -23,17 +22,23 @@ class TransitRouter:
         # reduce connections to only those for this day
         connections = [c for c in self.T.connections if self.T.trip_idx.id[c['trip_id']] in self.valid_trips]
 
-        self.csa = CSA(connections, self.T.footpaths)
+        self.csa = CSA(connections, self.T.footpaths, config.BASE_TRANSFER_TIME)
 
-    def route(self, start_coord, end_coord, dep_time, closest_stops=3):
+    def route(self, start_coord, end_coord, dep_time, closest_stops=2):
         """compute a trip-level route between
         a start and an end stop for a given datetime"""
         # candidate start and end stops,
         # returned as [(iid, time), ...]
         # NB here we assume people have no preference b/w transit mode,
         # i.e. they are equally likely to choose a bus stop or a subway stop.
-        start_stops = dict(self.T.closest_stops(start_coord, n=closest_stops))
-        end_stops = dict(self.T.closest_stops(end_coord, n=closest_stops))
+        # increasing the closest stops will increase likelihood of finding best
+        # route, but also significantly increases routing time
+        start_stops = {
+            self.T.stop_idx.idx[stop_id]: walk_time for stop_id, walk_time in self.T.closest_stops(start_coord, n=closest_stops)
+        }
+        end_stops = {
+            self.T.stop_idx.idx[stop_id]: walk_time for stop_id, walk_time in self.T.closest_stops(end_coord, n=closest_stops)
+        }
         same_stops = set(start_stops.keys()) & set(end_stops.keys())
 
         # if a same stop is in start and end stops,
@@ -41,20 +46,26 @@ class TransitRouter:
         if same_stops:
             walk_time = util.walking_time(
                 start_coord, end_coord,
-                config.footpath_delta_base, config.footpath_speed_kmh)
+                config.FOOTPATH_DELTA_BASE, config.FOOTPATH_SPEED_KMH)
             return [WalkLeg(time=walk_time)], walk_time
 
         # find best combination of start/end stops
-        best = (None, np.inf)
+        starts = []
+        ends = []
+        dep_times = []
+        walk_times = []
         for (s_stop, s_walk), (e_stop, e_walk) in product(start_stops.items(), end_stops.items()):
-            route, time = self.route_stops(s_stop, e_stop, dep_time)
-            if route is not None:
-                time = s_walk + time + e_walk
-                if time < best[1]:
-                    best = route, time
-        route, time = best
-        if route is None:
+            starts.append(s_stop)
+            ends.append(e_stop)
+            dep_times.append(dep_time)
+            walk_times.append(s_walk + e_walk)
+
+        route = self.csa.route_many(starts, ends, dep_times, walk_times)
+        if not route['path']:
             raise NoTransitRouteFound
+
+        time = route['time']
+        route = route['path'][::-1]
         return [
             TransitLeg(
                 dep_stop=l['dep_stop'],
@@ -68,8 +79,5 @@ class TransitRouter:
                 time=l['time'])
             for l in route], time
 
-    def route_stops(self, start_stop, end_stop, dep_time):
-        start = self.T.stop_idx.idx[start_stop]
-        end = self.T.stop_idx.idx[end_stop]
-        return self.csa.route(start, end, dep_time)
-
+    def route_stops(self, start_idx, end_idx, dep_time):
+        return self.csa.route(start_idx, end_idx, dep_time)

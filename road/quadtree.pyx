@@ -1,3 +1,5 @@
+# distutils: language=c++
+
 """
 adapted from:
 https://github.com/karimbahgat/Pyqtree/blob/master/pyqtree.py

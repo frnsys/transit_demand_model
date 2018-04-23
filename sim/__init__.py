@@ -1,4 +1,5 @@
 import enum
+import config
 import logging
 from .base import Sim
 from tqdm import tqdm
@@ -13,17 +14,22 @@ logger = logging.getLogger(__name__)
 
 Vehicle = recordclass('Vehicle', ['id', 'route', 'passengers', 'current', 'type'])
 Passenger = recordclass('Passenger', ['id', 'route'])
-Agent = recordclass('Agent', ['id', 'start', 'end', 'dep_time', 'public'])
+Stop = recordclass('Stop', ['start', 'end', 'dep_time', 'type'])
+Agent = recordclass('Agent', ['id', 'stops', 'public'])
 
-ACCEPTABLE_DELAY_MARGIN = 5*60
 
 class VehicleType(enum.Enum):
     Public = 0
     Private = 1
 
+class StopType(enum.IntEnum):
+    Commute = 0
+
+Stop.Type = StopType
+
 
 class TransitSim(Sim):
-    def __init__(self, transit, router, roads, transit_roads, cache_routes=True):
+    def __init__(self, transit, router, roads, transit_roads, cache_routes=True, debug=False):
         super().__init__()
         self.transit = transit
         self.router = router
@@ -44,44 +50,77 @@ class TransitSim(Sim):
         # for exporting (visualization) purposes
         # self.history = defaultdict(list)
 
+        self.debug = debug
+
+        # only if debug=True
         # for calibrating road network speed
         # to bus schedules
         self.last_deps = {}
         self.delays = []
 
+        # only if debug=True
+        # for debugging where
+        # routes aren't found on the road network
         self.road_route_failures = set()
+
+        # all output data
+        self.data = {
+            'agent_trips': [],
+            'road_capacities': defaultdict(list)
+        }
 
     def run(self, agents):
         self.queue_public_transit()
         self.queue_agents(agents)
         super().run()
 
+    def on_agent_arrive(self, agent, stop, time):
+        # record data
+        self.data['agent_trips'].append((agent.id, stop.start, stop.end, stop.type, float(stop.dep_time), float(time)))
+
+        if not agent.stops:
+            return []
+
+        # schedule next stop
+        return [self.route_agent(agent)]
+
+    def route_agent(self, agent):
+        if not agent.stops:
+            return
+
+        stop = agent.stops.pop(0)
+
+        on_arrive = partial(self.on_agent_arrive, agent, stop)
+        if agent.public:
+            try:
+                route, time = self.router.route(stop.start, stop.end, stop.dep_time)
+                pas = Passenger(id=agent.id, route=route)
+                return stop.dep_time, partial(self.passenger_next, pas, on_arrive)
+            except NoTransitRouteFound:
+                # TODO just skipping for now
+                # this has happened because the departure time
+                # is late and we don't project schedules into the next day
+                return
+        else:
+            try:
+                route = self.roads.route(stop.start, stop.end)
+            except NoRoadRouteFound:
+                # TODO just skipping for now
+                # likely because something is wrong with the road network
+                # see other place we are catching NoRoadRouteFound
+                logger.warn('Ignoring no road route found! ({} -> {})'.format(stop.start, stop.end))
+                return
+            veh = Vehicle(id=agent.id, route=route, passengers=[agent.id], current=None, type=VehicleType.Private)
+            return stop.dep_time, partial(self.road_next, veh, on_arrive)
+
     def queue_agents(self, agents):
         """queue agents trip,
         which may be via car or public transit"""
         logger.info('Preparing agents...')
         for agent in tqdm(agents):
-            if agent.public:
-                try:
-                    route, time = self.router.route(agent.start, agent.end, agent.dep_time)
-                    pas = Passenger(id=agent.id, route=route)
-                    self.queue(agent.dep_time, partial(self.passenger_next, pas))
-                except NoTransitRouteFound:
-                    # TODO just skipping for now
-                    # this has happened because the departure time
-                    # is late and we don't project schedules into the next day
-                    continue
-            else:
-                try:
-                    route = self.roads.route(agent.start, agent.end)
-                except NoRoadRouteFound:
-                    # TODO just skipping for now
-                    # likely because something is wrong with the road network
-                    # see other place we are catching NoRoadRouteFound
-                    logger.warn('Ignoring no road route found! ({} -> {})'.format(agent.start, agent.end))
-                    continue
-                veh = Vehicle(id=agent.id, route=route, passengers=[agent.id], current=None, type=VehicleType.Private)
-                self.queue(agent.dep_time, partial(self.road_next, veh, lambda t: []))
+            ev = self.route_agent(agent)
+            if ev is not None:
+                self.queue(*ev)
 
     def queue_public_transit(self):
         """
@@ -97,8 +136,10 @@ class TransitSim(Sim):
         to the first stop.
         """
         logger.info('Preparing public transit vehicles...')
-        # valid_trips = sorted(list(self.router.valid_trips))[:500]
-        valid_trips = self.router.valid_trips
+        if self.debug:
+            valid_trips = sorted(list(self.router.valid_trips))[:10]
+        else:
+            valid_trips = self.router.valid_trips
         for trip_id, sched in tqdm(self.transit.trip_stops):
             # faster access as a list of dicts
             sched = sched.to_dict('records')
@@ -166,25 +207,25 @@ class TransitSim(Sim):
         events = self.transit_next(transit_vehicle, time)
         cur_stop = transit_vehicle.route[transit_vehicle.current]
 
-        last_dep = self.last_deps.get(transit_vehicle.id)
-        if last_dep is not None:
-            # we compare scheduled vs actual travel times rather than
-            # scheduled vs actual arrival times to control for drift.
-            # if we compared arrival times, earlier days would accumulate
-            # and likely cause all subsequent arrivals to be delayed.
-            # comparing travel times avoids this and also
-            # lets us better diagnose where the largest travel time
-            # discrepancies are.
-            last_stop = transit_vehicle.route[transit_vehicle.current-1]
-            scheduled_travel_time = cur_stop['arr_sec'] - last_stop['dep_sec']
-            actual_travel_time = time - last_dep
-            delay = actual_travel_time - scheduled_travel_time
-            # for calibration, want to take the absolute value
-            if abs(delay) > ACCEPTABLE_DELAY_MARGIN:
-            # otherwise:
-            # if delay > ACCEPTABLE_DELAY_MARGIN:
-                # print('TRAVEL EXCEPTION: {:.2f}min'.format(delay/60))
-                self.delays.append(delay)
+        if self.debug:
+            last_dep = self.last_deps.get(transit_vehicle.id)
+            if last_dep is not None:
+                # we compare scheduled vs actual travel times rather than
+                # scheduled vs actual arrival times to control for drift.
+                # if we compared arrival times, earlier days would accumulate
+                # and likely cause all subsequent arrivals to be delayed.
+                # comparing travel times avoids this and also
+                # lets us better diagnose where the largest travel time
+                # discrepancies are.
+                last_stop = transit_vehicle.route[transit_vehicle.current-1]
+                scheduled_travel_time = cur_stop['arr_sec'] - last_stop['dep_sec']
+                actual_travel_time = time - last_dep
+                delay = actual_travel_time - scheduled_travel_time
+
+                # for calibration, want to take the absolute value
+                if abs(delay) > config.ACCEPTABLE_DELAY_MARGIN:
+                    logger.warn('BUS TRAVEL EXCEPTION: DELAYED {:.2f}min'.format(delay/60))
+                    self.delays.append(delay)
 
         # prepare to depart
         try:
@@ -224,13 +265,14 @@ class TransitSim(Sim):
             # a road network position, it maps incorrectly.
 
             # get inferred stop position on road network
-            start_pt = (
-                self.transit_roads.stops[start].pt.x,
-                self.transit_roads.stops[start].pt.y)
-            end_pt = (
-                self.transit_roads.stops[end].pt.x,
-                self.transit_roads.stops[end].pt.y)
-            self.road_route_failures.add(((start_pt, end_pt), (start, end)))
+            if self.debug:
+                start_pt = (
+                    self.transit_roads.stops[start].pt.x,
+                    self.transit_roads.stops[start].pt.y)
+                end_pt = (
+                    self.transit_roads.stops[end].pt.x,
+                    self.transit_roads.stops[end].pt.y)
+                self.road_route_failures.add(((start_pt, end_pt), (start, end)))
             logger.warn('Ignoring no road route found! (STOP{} -> STOP{}) Falling back to bus schedule.'.format(start, end))
 
             # as a fallback, just assume the bus arrives on time
@@ -243,16 +285,16 @@ class TransitSim(Sim):
         return events
 
 
-    def passenger_next(self, passenger, time):
+    def passenger_next(self, passenger, on_arrive, time):
         """action for individual public transit passengers"""
         try:
             leg = passenger.route.pop(0)
         except IndexError:
             logger.debug('[{}] {} Arrived'.format(time, passenger.id))
-            return []
+            return on_arrive(time)
 
         # setup next action
-        action = partial(self.passenger_next, passenger)
+        action = partial(self.passenger_next, passenger, on_arrive)
 
         if isinstance(leg, WalkLeg):
             logger.debug('[{}] {} Walking'.format(time, passenger.id))
@@ -305,6 +347,7 @@ class TransitSim(Sim):
             if edge['occupancy'] < 0:
                 raise Exception('occupancy should be positive')
             vehicle.route.pop(0)
+            self.data['road_capacities'][edge['id']].append((int(edge['occupancy']), float(time)))
 
         # compute next leg
         leg = self.road_travel(vehicle.route, vehicle.type)
@@ -321,6 +364,7 @@ class TransitSim(Sim):
         edge['occupancy'] += 1
         if edge['occupancy'] <= 0:
             raise Exception('adding occupant shouldnt make it 0')
+        self.data['road_capacities'][edge['id']].append((int(edge['occupancy']), float(time)))
 
         vehicle.current = edge
 
