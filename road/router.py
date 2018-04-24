@@ -1,5 +1,6 @@
 import math
 import config
+import networkx as nx
 from itertools import count
 from heapq import heappush, heappop
 from collections import namedtuple
@@ -33,7 +34,7 @@ class Router():
     def route_edges(self, edge_s, edge_e):
         """compute a road route between two edges
         that include 0.-1. positions along the edges"""
-        path, dist = dijkstra(self.network, edge_s.to, edge_e.frm, edge_weight)
+        path = astar(self.network, edge_s.to, edge_e.frm, weight=edge_weight, heuristic=self.heuristic)
 
         # adjust start node
         path[0] = (edge_s.to, None)
@@ -46,51 +47,13 @@ class Router():
         route.append(Leg(frm=path[-1][0], to=edge_e.to, edge_no=edge_e.no, p=edge_e.p))
         return route
 
-
-def dijkstra(G, source, target, weight):
-    G_succ = G._succ if G.is_directed() else G._adj
-
-    paths = {}
-    paths[source] = [source]
-    push = heappush
-    pop = heappop
-    dist = {}  # dictionary of final distances
-    seen = {}
-    # fringe is heapq with 3-tuples (distance,c,node)
-    # use the count c to avoid comparing nodes (may not be able to)
-    c = count()
-    fringe = []
-    seen[source] = 0
-    push(fringe, (0, next(c), source))
-    while fringe:
-        (d, _, v) = pop(fringe)
-        if v in dist:
-            continue  # already searched this node.
-        dist[v] = d
-        if v == target:
-            break
-        for u, e in G_succ[v].items():
-            edge, cost = weight(v, u, e)
-            if cost is None:
-                continue
-            vu_dist = dist[v] + cost
-            if u in dist:
-                if vu_dist < dist[u]:
-                    raise ValueError('Contradictory paths found:',
-                                     'negative weights?')
-            elif u not in seen or vu_dist < seen[u]:
-                seen[u] = vu_dist
-                push(fringe, (vu_dist, next(c), u))
-                if paths is not None:
-                    paths[u] = paths[v] + [(u, edge)]
-
-    try:
-        return paths[target], dist
-    except KeyError:
-        raise NoRoadRouteFound
+    def heuristic(self, u, v):
+        u = self.network.nodes[u]
+        v = self.network.nodes[v]
+        return math.sqrt((u['x']-v['x'])**2 + (u['y'] - v['y'])**2)
 
 
-def edge_weight(u, v, edges):
+def edge_weight(edges):
     """determines the attractiveness/speed of a
     network edge; the lower the better"""
     # there may be multiple edges;
@@ -115,3 +78,75 @@ def edge_travel_time(edge):
     congestion_multiplier = 1 + math.sqrt(occupancy_per_lane**2/edge['capacity'])
 
     return (time * congestion_multiplier)/config.SPEED_FACTOR
+
+
+
+def astar(G, source, target, heuristic=None, weight='weight'):
+    if source not in G or target not in G:
+        msg = 'Either source {} or target {} is not in G'
+        raise nx.NodeNotFound(msg.format(source, target))
+
+    if heuristic is None:
+        # The default heuristic is h=0 - same as Dijkstra's algorithm
+        def heuristic(u, v):
+            return 0
+
+    push = heappush
+    pop = heappop
+
+    # The queue stores priority, node, cost to reach, parent, and selected edge.
+    # Uses Python heapq to keep in priority order.
+    # Add a counter to the queue to prevent the underlying heap from
+    # attempting to compare the nodes themselves. The hash breaks ties in the
+    # priority and is guaranteed unique for all nodes in the graph.
+    c = count()
+    queue = [(0, next(c), source, 0, None, None)]
+
+    # Maps enqueued nodes to distance of discovered paths and the
+    # computed heuristics to target. We avoid computing the heuristics
+    # more than once and inserting the node into the queue too many times.
+    enqueued = {}
+    # Maps explored nodes to parent closest to the source.
+    explored = {}
+    ancestors = {}
+
+    while queue:
+        # Pop the smallest item from queue.
+        _, __, curnode, dist, parent, edge = pop(queue)
+
+        if curnode == target:
+            path = [(curnode, edge)]
+            node = parent
+            while node is not None:
+                # node = explored[node]
+                prev_node, edge = ancestors[node]
+                path.append((node, edge))
+                node = prev_node
+            path.reverse()
+            return path
+
+        if curnode in explored:
+            continue
+
+        explored[curnode] = parent
+        ancestors[curnode] = (parent, edge)
+
+        for neighbor, edges in G[curnode].items():
+            if neighbor in explored:
+                continue
+            edge, cost = weight(edges)
+            ncost = dist + cost
+            if neighbor in enqueued:
+                qcost, h = enqueued[neighbor]
+                # if qcost < ncost, a longer path to neighbor remains
+                # enqueued. Removing it would need to filter the whole
+                # queue, it's better just to leave it there and ignore
+                # it when we visit the node a second time.
+                if qcost <= ncost:
+                    continue
+            else:
+                h = heuristic(neighbor, target)
+            enqueued[neighbor] = ncost, h
+            push(queue, (ncost + h, next(c), neighbor, ncost, curnode, edge))
+
+    raise NoRoadRouteFound
