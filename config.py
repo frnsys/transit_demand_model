@@ -55,3 +55,16 @@ BOUND_RADIUS = 0.001
 GEOHASH_PRECISION = 6
 
 OUTPUT_PATH = '/tmp/seal_transit'
+
+WAGE_TO_CAR_OWNERSHIP_QUANTILES = {
+    0.0: 0.1174,
+    0.1: 0.1429,
+    0.2: 0.2303,
+    0.3: 0.2883,
+    0.4: 0.3395,
+    0.5: 0.4667,
+    0.6: 0.5554,
+    0.7: 0.6508,
+    0.8: 0.7779,
+    0.9: 0.9135,
+}

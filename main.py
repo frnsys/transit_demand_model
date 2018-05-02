@@ -5,12 +5,14 @@ import config
 import random
 import logging
 import osmnx as ox
+import pandas as pd
 from time import time
 from road import Roads
 from sim import TransitSim, Agent, Stop
 from gtfs import Transit, util
 from shapely.geometry import Point
 from dateutil import parser
+from collections import defaultdict
 
 random.seed(0)
 logging.basicConfig(level=logging.INFO)
@@ -23,6 +25,10 @@ def split_path(path, splits=2):
         parts.append(tail)
         path = head
     return path, parts[::-1]
+
+
+def get_decile(df, decile):
+    return df[(df >= df.quantile(decile)) & (df <= df.quantile(decile+0.1))].dropna().index.values.tolist()
 
 
 @click.command()
@@ -85,6 +91,25 @@ def run(place, gtfs_path, sim_output_path, sim_date, debug):
             snapshot = json.load(f)
         sim = TransitSim(transit, router, roads, transit_roads, debug=debug)
 
+        # compute data needed to determine car ownership
+        last_wages = {}
+        houses = defaultdict(list)
+        for id, agent in snapshot['agents'].items():
+            x, y, house_id, firm_id, last_wage = agent
+
+            # only keep track of working members
+            if firm_id is not None:
+                houses[house_id].append(id)
+                last_wages[id] = last_wage
+
+        last_wages_df = pd.DataFrame.from_dict(last_wages, orient='index')
+        deciles = {}
+        for decile in [0, 0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9]:
+            ids = get_decile(last_wages_df, decile)
+            for id in ids:
+                deciles[id] = decile
+
+        # plan trips
         agents = []
         for id, agent in snapshot['agents'].items():
             # TODO need to get consistent about coordinate ordering!
@@ -116,7 +141,20 @@ def run(place, gtfs_path, sim_output_path, sim_date, debug):
             # travel plan
             stops = [Stop(start=start, end=end, dep_time=dep_time, type=Stop.Type.Commute)]
 
-            public = random.choice([True, False])
+            n_working_family = len(houses[house_id])
+            decile = deciles.get(id)
+
+            # decile is None if last_wage was None
+            # so just use public transit in that case
+            if decile is None:
+                public = True
+
+            # otherwise, see if a car is available
+            else:
+                decile_prob = config.WAGE_TO_CAR_OWNERSHIP_QUANTILES[decile]
+                car_prob = (1/n_working_family) * decile_prob
+                public = not random.random() <= car_prob
+
             agent = Agent(id=id, stops=stops, public=public)
             agents.append(agent)
 
@@ -132,6 +170,16 @@ def run(place, gtfs_path, sim_output_path, sim_date, debug):
         with open(output_path, 'w') as f:
             json.dump(sim.data, f)
         logger.info('Saving simulation results took {}s'.format(time() - s))
+
+        # logger.info('Exporting visualization data...')
+        # s = time()
+        # fname = 'viz_{}'.format(fname)
+        # output_path = os.path.join(results_output_path, fname)
+        # if not os.path.exists(results_output_path):
+        #     os.makedirs(results_output_path)
+        # with open(output_path, 'w') as f:
+        #     json.dump(sim.export(), f)
+        # logger.info('Saving visualization data took {}s'.format(time() - s))
     logger.info('Total run time: {}s'.format(time() - START))
 
 
