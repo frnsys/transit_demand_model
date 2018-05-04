@@ -123,7 +123,6 @@ class Roads():
                 coord = r.stop_lat, r.stop_lon
                 self.stops[i] = self.find_closest_edge(coord)
                 # self.stops_debug[i] = self.find_closest_edges(coord)[:10]
-        # import ipdb; ipdb.set_trace()
 
     def _prepare_network(self):
         """preprocess the network as needed"""

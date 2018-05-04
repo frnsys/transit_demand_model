@@ -48,7 +48,8 @@ class TransitSim(Sim):
 
         # track (road) vehicle trips,
         # for exporting (visualization) purposes
-        # self.history = defaultdict(list)
+        self.history = defaultdict(list)
+        self.vehicles = {}
 
         self.debug = debug
 
@@ -111,6 +112,7 @@ class TransitSim(Sim):
                 logger.warn('Ignoring no road route found! ({} -> {})'.format(stop.start, stop.end))
                 return
             veh = Vehicle(id=agent.id, route=route, passengers=[agent.id], current=None, type=VehicleType.Private)
+            self.vehicles[veh.id] = veh
             return stop.dep_time, partial(self.road_next, veh, on_arrive)
 
     def queue_agents(self, agents):
@@ -157,7 +159,9 @@ class TransitSim(Sim):
 
                 if type is RouteType.BUS:
                     # bus will calc route when it needs to
-                    road_vehicle = Vehicle(id='{}_ROAD'.format(id), route=[], passengers=[], current=None, type=VehicleType.Public)
+                    veh_id = '{}_ROAD'.format(id)
+                    road_vehicle = Vehicle(id=veh_id, route=[], passengers=[], current=None, type=VehicleType.Public)
+                    self.vehicles[veh_id] = road_vehicle
                     action = partial(self.on_bus_arrive, road_vehicle)
                 else:
                     action = self.transit_next
@@ -369,7 +373,7 @@ class TransitSim(Sim):
         vehicle.current = edge
 
         # cast to avoid errors with serializing numpy types
-        # self.history[vehicle.id].append((float(time), float(travel_time), leg))
+        self.history[vehicle.id].append((float(time), float(travel_time), leg))
 
         # return next event
         # TODO this assumes agents don't stop at
@@ -383,20 +387,24 @@ class TransitSim(Sim):
         easy to export to JSON for visualization"""
         logger.info('Exporting...')
         trips = []
-        for trip in tqdm(self.history.values()):
+        for veh_id, trip in tqdm(self.history.items()):
             # print(len(trip)) # trips are quite long...
+            if self.vehicles[veh_id].type is VehicleType.Public:
+                road_network = self.transit_roads
+            else:
+                road_network = self.roads
             trips.append({
                 'vendor': 0,
-                'segments': self.roads.segments(trip)
+                'segments': road_network.segments(trip, step=0.5)
             })
 
-        coords = [(e.pt.x, e.pt.y) for e in self.roads.stops.values()]
-        stops = self.roads.to_latlon_bulk(coords)
+        coords = [(e.pt.x, e.pt.y) for e in self.transit_roads.stops.values()]
+        stops = self.transit_roads.to_latlon_bulk(coords)
 
         return {
             'place': {
-                'lat': float(self.roads.place_meta['lat']),
-                'lng': float(self.roads.place_meta['lon'])
+                'lat': float(self.transit_roads.place_meta['lat']),
+                'lng': float(self.transit_roads.place_meta['lon'])
             },
             'trips': trips,
             'stops': stops

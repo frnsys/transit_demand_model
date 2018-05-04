@@ -171,15 +171,15 @@ def run(place, gtfs_path, sim_output_path, sim_date, debug):
             json.dump(sim.data, f)
         logger.info('Saving simulation results took {}s'.format(time() - s))
 
-        # logger.info('Exporting visualization data...')
-        # s = time()
-        # fname = 'viz_{}'.format(fname)
-        # output_path = os.path.join(results_output_path, fname)
-        # if not os.path.exists(results_output_path):
-        #     os.makedirs(results_output_path)
-        # with open(output_path, 'w') as f:
-        #     json.dump(sim.export(), f)
-        # logger.info('Saving visualization data took {}s'.format(time() - s))
+        logger.info('Exporting visualization data...')
+        s = time()
+        fname = 'viz_{}'.format(fname)
+        output_path = os.path.join(results_output_path, fname)
+        if not os.path.exists(results_output_path):
+            os.makedirs(results_output_path)
+        with open(output_path, 'w') as f:
+            json.dump(sim.export(), f)
+        logger.info('Saving visualization data took {}s'.format(time() - s))
     logger.info('Total run time: {}s'.format(time() - START))
 
 
