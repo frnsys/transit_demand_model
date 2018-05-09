@@ -49,7 +49,7 @@ export default class DeckGLOverlay extends Component {
         id: 'trips',
         data: trips,
         getPath: d => d.segments,
-        getColor: d => (d.vendor === 0 ? [19, 219, 92] : [23, 184, 190]),
+        getColor: d => (d.vendor === 0 ? [19, 219, 92] : [255, 0, 0]),
         opacity: 0.3,
         strokeWidth: 2,
         trailLength,

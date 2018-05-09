@@ -392,13 +392,13 @@ class TransitSim(Sim):
         logger.info('Exporting...')
         trips = []
         for veh_id, trip in tqdm(self.history.items()):
-            # print(len(trip)) # trips are quite long...
-            if self.vehicles[veh_id].type is VehicleType.Public:
+            veh_type = self.vehicles[veh_id].type
+            if veh_type is VehicleType.Public:
                 road_network = self.transit_roads
             else:
                 road_network = self.roads
             trips.append({
-                'vendor': 0,
+                'vendor': veh_type,
                 'segments': road_network.segments(trip, step=0.5)
             })
 
@@ -406,9 +406,11 @@ class TransitSim(Sim):
         stops = self.transit_roads.to_latlon_bulk(coords)
 
         return {
-            'place': {
+            'meta': {
                 'lat': float(self.transit_roads.place_meta['lat']),
-                'lng': float(self.transit_roads.place_meta['lon'])
+                'lng': float(self.transit_roads.place_meta['lon']),
+                'start_time': self.history_window[0],
+                'end_time': self.history_window[1]
             },
             'trips': trips,
             'stops': stops

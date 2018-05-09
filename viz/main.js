@@ -6,7 +6,8 @@ import DeckGLOverlay from './deckgl-overlay.js';
 import {json as requestJson} from 'd3-request';
 import MAPBOX_TOKEN from './token';
 
-const COORD = '/coord.json'; // center of place to start viewport
+const SEC_PER_FRAME = 0.5;
+const META = '/meta.json'; // center of place to start viewport
 const DATA_URL = {
   trips: '/trips.json', // trips
   buses: '/stops.json', // bus stops (inferred)
@@ -47,12 +48,12 @@ class Root extends Component {
         }
       });
     });
-    requestJson(COORD, (error, response) => {
+    requestJson(META, (error, response) => {
       if (!error) {
         let viewport = this.state.viewport;
         viewport.latitude = response.lat;
         viewport.longitude = response.lng;
-        this.setState({viewport: viewport})
+        this.setState({viewport: viewport, time: response.start_time});
       }
     });
   }
@@ -70,12 +71,8 @@ class Root extends Component {
   }
 
   _animate() {
-    const timestamp = Date.now();
-    const loopLength = 1800;
-    const loopTime = 60000;
-
     this.setState({
-      time: (timestamp % loopTime) / loopTime * loopLength
+      time: this.state.time + SEC_PER_FRAME
     });
     this._animationFrame = window.requestAnimationFrame(this._animate.bind(this));
   }

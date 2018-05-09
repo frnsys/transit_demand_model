@@ -174,12 +174,11 @@ def run(place, gtfs_path, sim_output_path, sim_date, debug):
 
         logger.info('Exporting visualization data...')
         s = time()
-        fname = 'viz_{}'.format(fname)
-        output_path = os.path.join(results_output_path, fname)
-        if not os.path.exists(results_output_path):
-            os.makedirs(results_output_path)
-        with open(output_path, 'w') as f:
-            json.dump(sim.export(), f)
+        viz_data = sim.export()
+        for k, v in viz_data.items():
+            output_path = 'viz/assets/{}.json'.format(k)
+            with open(output_path, 'w') as f:
+                json.dump(v, f)
         logger.info('Saving visualization data took {}s'.format(time() - s))
     logger.info('Total run time: {}s'.format(time() - START))
 
