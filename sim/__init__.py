@@ -29,7 +29,8 @@ Stop.Type = StopType
 
 
 class TransitSim(Sim):
-    def __init__(self, transit, router, roads, transit_roads, cache_routes=True, debug=False):
+    def __init__(self, transit, router, roads, transit_roads,
+                 cache_routes=True, save_history=False, history_window=(8*60*60, 8*60*60+5*60), debug=False):
         super().__init__()
         self.transit = transit
         self.router = router
@@ -48,6 +49,8 @@ class TransitSim(Sim):
 
         # track (road) vehicle trips,
         # for exporting (visualization) purposes
+        self.save_history = save_history
+        self.history_window = history_window
         self.history = defaultdict(list)
         self.vehicles = {}
 
@@ -373,7 +376,8 @@ class TransitSim(Sim):
         vehicle.current = edge
 
         # cast to avoid errors with serializing numpy types
-        self.history[vehicle.id].append((float(time), float(travel_time), leg))
+        if self.save_history and time >= self.history_window[0] and time <= self.history_window[1]:
+            self.history[vehicle.id].append((float(time), float(travel_time), leg))
 
         # return next event
         # TODO this assumes agents don't stop at

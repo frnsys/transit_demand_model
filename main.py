@@ -89,7 +89,8 @@ def run(place, gtfs_path, sim_output_path, sim_date, debug):
         logger.info('Preparing sim for snapshot "{}"...'.format(fname))
         with open(os.path.join(sim_transit_path, fname), 'r') as f:
             snapshot = json.load(f)
-        sim = TransitSim(transit, router, roads, transit_roads, debug=debug)
+        sim = TransitSim(transit, router, roads, transit_roads,
+                         save_history=True, history_window=(8*60*60, 8*60*60+5*60), debug=debug)
 
         # compute data needed to determine car ownership
         last_wages = {}
