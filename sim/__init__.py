@@ -398,7 +398,7 @@ class TransitSim(Sim):
             else:
                 road_network = self.roads
             trips.append({
-                'vendor': veh_type,
+                'vendor': veh_type.value,
                 'segments': road_network.segments(trip, step=0.5)
             })
 
