@@ -70,6 +70,7 @@ class TransitSim(Sim):
         # all output data
         self.data = {
             'agent_trips': [],
+            'agent_trip_types': {},
             'road_capacities': defaultdict(list)
         }
 
@@ -123,6 +124,7 @@ class TransitSim(Sim):
         which may be via car or public transit"""
         logger.info('Preparing agents...')
         for agent in tqdm(agents):
+            self.data['agent_trip_types'][agent.id] = agent.public
             ev = self.route_agent(agent)
             if ev is not None:
                 self.queue(*ev)
