@@ -71,7 +71,10 @@ class TransitSim(Sim):
         self.data = {
             'agent_trips': [],
             'agent_trip_types': {},
-            'road_capacities': defaultdict(list)
+            'road_capacities': defaultdict(list),
+            'edge_names': {
+                k: e.get('name') for k, (u, v, n, e) in roads.edges.items()
+            }
         }
 
     def run(self, agents):
