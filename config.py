@@ -14,24 +14,25 @@ CLOSEST_INDIRECT_TRANSFERS = 5
 
 # max speed used if one is not specified or one cannot
 # be estimated for a road segment
+# should be in m/h, not km/h
 # https://wiki.openstreetmap.org/wiki/Key:highway
 # https://en.wikivoyage.org/wiki/Driving_in_Brazil
 # TODO get better values
 DEFAULT_ROAD_SPEEDS = {
     'disused': 0,
-    'living_street': 30,
-    'residential': 30,
-    'motorway': 110,
-    'primary': 110,
-    'trunk': 110,
-    'secondary': 80,
-    'tertiary': 60,
-    'services': 80,
+    'living_street': 30/1000,
+    'residential': 30/1000,
+    'motorway': 110/1000,
+    'primary': 110/1000,
+    'trunk': 110/1000,
+    'secondary': 80/1000,
+    'tertiary': 60/1000,
+    'services': 80/1000,
 
     # according to the OSM wiki (link above),
     # the 'road' value is for an unknown type.
     # defaulting to:
-    'road': 60
+    'road': 60/1000
 }
 
 # scale travel speeds by this amount
