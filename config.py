@@ -14,35 +14,35 @@ CLOSEST_INDIRECT_TRANSFERS = 5
 
 # max speed used if one is not specified or one cannot
 # be estimated for a road segment
-# should be in m/h, not km/h
+# should be km/h
 # https://wiki.openstreetmap.org/wiki/Key:highway
 # https://en.wikivoyage.org/wiki/Driving_in_Brazil
 # TODO get better values
 DEFAULT_ROAD_SPEEDS = {
     'disused': 0,
-    'living_street': 30/1000,
-    'residential': 30/1000,
-    'motorway': 110/1000,
-    'primary': 110/1000,
-    'trunk': 110/1000,
-    'secondary': 80/1000,
-    'tertiary': 60/1000,
-    'services': 80/1000,
+    'living_street': 30,
+    'residential': 30,
+    'motorway': 110,
+    'primary': 110,
+    'trunk': 110,
+    'secondary': 80,
+    'tertiary': 60,
+    'services': 80,
 
     # according to the OSM wiki (link above),
     # the 'road' value is for an unknown type.
     # defaulting to:
-    'road': 60/1000
+    'road': 60
 }
 
 # scale travel speeds by this amount
 SPEED_FACTOR = 1
 
-# how much a bus can be delayed (+/-)
+# how much a bus can be delayed (+/-), in seconds
 # if the delay is greater than this amount,
 # and the --debug flag is used,
 # then the simulation will log a warning
-ACCEPTABLE_DELAY_MARGIN = 5*60
+ACCEPTABLE_DELAY_MARGIN = 12*60
 
 # how far around a point to search for
 # closest edges.

@@ -65,7 +65,12 @@ def edge_weight(edges):
 def edge_travel_time(edge):
     """travel time for a traveler entering an edge"""
     # assuming people always drive at maxspeed
-    time = (edge['length']/edge['maxspeed'])
+    # maxspeed in km/h
+    meters_per_hour = edge['maxspeed']/1000
+    meters_per_second = meters_per_hour * 60
+
+    # time should be in seconds
+    time = (edge['length']/meters_per_second)
 
     # occupancy, including this new vehicle
     occupancy = edge['occupancy'] + 1
