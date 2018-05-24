@@ -73,7 +73,7 @@ class TransitSim(Sim):
             'agent_trip_types': {},
             'road_capacities': defaultdict(list),
             'edge_names': {
-                k: e.get('name') for k, (u, v, n, e) in roads.edges.items()
+                e['id']: e.get('name') for k, (u, v, n, e) in roads.edges.items()
             }
         }
 
