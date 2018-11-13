@@ -144,14 +144,16 @@ class Roads():
                 continue
 
             # <https://wiki.openstreetmap.org/wiki/Josm/styles/lane_features>
-            # TODO check specifically for bus lanes:
+            # Ideally check specifically for bus lanes:
             # <https://wiki.openstreetmap.org/wiki/Key:lanes>
+            # but does not seem to be present in the data we have
             lanes = d.get('lanes', 1)
             if isinstance(lanes, str):
                 lanes = int(lanes)
             elif isinstance(lanes, list):
                 # just add up lanes if multiple are listed
-                # TODO not sure if this is appropriate
+                # In the OSM spec it's supposed to be a scalar value anyways:
+                # <https://wiki.openstreetmap.org/wiki/Josm/styles/lane_features>
                 lanes = sum(int(l) for l in lanes)
 
             # sometimes this `lanes` value is set to `-1`,
@@ -166,8 +168,11 @@ class Roads():
             else:
                 maxspeed = d['maxspeed']
                 if isinstance(maxspeed, list):
-                    # TODO if multiple speeds are listed,
-                    # take the average -- does this make sense?
+                    # Multiple speeds may be listed,
+                    # but it doesn't seem to correlate with
+                    # multiple lanes.
+                    # The speeds can vary by as much as 40km/h
+                    # Just taking the average
                     maxspeed = sum(int(s) for s in maxspeed)/len(maxspeed)
                 else:
                     maxspeed = int(maxspeed)
