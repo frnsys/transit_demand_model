@@ -36,14 +36,16 @@ def get_decile(df, decile):
 @click.argument('gtfs_path')
 @click.argument('sim_output_path')
 @click.argument('sim_date')
+@click.argument('sim_scale')
 @click.option('--debug', is_flag=True)
-def run(place, gtfs_path, sim_output_path, sim_date, debug):
+def run(place, gtfs_path, sim_output_path, sim_date, sim_scale, debug):
     """
     Example params:
     place = 'Belo Horizonte, Brazil'
     gtfs_path = 'data/gtfs/gtfs_bhtransit.zip'
     sim_output_path = '/tmp/seal/run__2018-04-22T14_43_51.895867/0'
     sim_date = '22/2/2017'
+    sim_scale = 0.01 (equivalent to PERCENTAGE_ACTUAL_POP in PolicySpace)
 
     If debug=True:
         collects some debugging data for routing

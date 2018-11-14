@@ -34,7 +34,7 @@ class Router():
     def route_edges(self, edge_s, edge_e):
         """compute a road route between two edges
         that include 0.-1. positions along the edges"""
-        path = astar(self.network, edge_s.to, edge_e.frm, weight=edge_weight, heuristic=self.heuristic)
+        path = astar(self.network, edge_s.to, edge_e.frm, weight=self.edge_weight, heuristic=self.heuristic)
 
         # adjust start node
         path[0] = (edge_s.to, None)
@@ -52,38 +52,36 @@ class Router():
         v = self.network.nodes[v]
         return math.sqrt((u['x']-v['x'])**2 + (u['y'] - v['y'])**2)
 
+    def edge_weight(self, edges):
+        """determines the attractiveness/speed of a
+        network edge; the lower the better"""
+        # there may be multiple edges;
+        # default to the shortest
+        edges = [(idx, self.edge_travel_time(data)) for idx, data in edges.items()]
+        return min(edges, key=lambda e: e[1])
 
-def edge_weight(edges):
-    """determines the attractiveness/speed of a
-    network edge; the lower the better"""
-    # there may be multiple edges;
-    # default to the shortest
-    edges = [(idx, edge_travel_time(data)) for idx, data in edges.items()]
-    return min(edges, key=lambda e: e[1])
+    def edge_travel_time(self, edge):
+        """travel time for a traveler entering an edge"""
+        # assuming people always drive at maxspeed
+        # maxspeed in km/h
+        meters_per_hour = edge['maxspeed']/1000
+        meters_per_second = meters_per_hour * 60
 
+        # time should be in seconds
+        time = (edge['length']/meters_per_second)
 
-def edge_travel_time(edge):
-    """travel time for a traveler entering an edge"""
-    # assuming people always drive at maxspeed
-    # maxspeed in km/h
-    meters_per_hour = edge['maxspeed']/1000
-    meters_per_second = meters_per_hour * 60
+        # occupancy, including this new vehicle
+        occupancy = edge['occupancy'] + self.roads.vehicle_size
 
-    # time should be in seconds
-    time = (edge['length']/meters_per_second)
+        # assuming each vehicle takes its own lane
+        # if possible
+        occupancy_per_lane = self.roads.vehicle_size + (occupancy-self.roads.vehicle_size)//edge['lanes']
 
-    # occupancy, including this new vehicle
-    occupancy = edge['occupancy'] + 1
+        # Congestion is complex so this is only a simple heuristic.
+        # It varies depending on headway, speed of cars in front, and other factors
+        congestion_multiplier = 1 + math.sqrt(occupancy_per_lane**2/edge['capacity'])
 
-    # assuming each vehicle takes its own lane
-    # if possible
-    occupancy_per_lane = 1 + (occupancy-1)//edge['lanes']
-
-    # Congestion is complex so this is only a simple heuristic.
-    # It varies depending on headway, speed of cars in front, and other factors
-    congestion_multiplier = 1 + math.sqrt(occupancy_per_lane**2/edge['capacity'])
-
-    return (time * congestion_multiplier)/config.SPEED_FACTOR
+        return (time * congestion_multiplier)/config.SPEED_FACTOR
 
 
 

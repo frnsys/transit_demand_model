@@ -6,7 +6,7 @@ from tqdm import tqdm
 from functools import partial
 from collections import defaultdict
 from recordclass import recordclass
-from road.router import NoRoadRouteFound, edge_travel_time
+from road.router import NoRoadRouteFound
 from gtfs.router import WalkLeg, TransferLeg, TransitLeg, NoTransitRouteFound
 from gtfs import RouteType
 
@@ -346,7 +346,7 @@ class TransitSim(Sim):
             edge = self.roads.network[leg.frm][leg.to][leg.edge_no]
 
         # where leg.p is the proportion of the edge we travel
-        time = edge_travel_time(edge) * leg.p
+        time = self.roads.router.edge_travel_time(edge) * leg.p
 
         return leg, edge, time
 
@@ -355,11 +355,11 @@ class TransitSim(Sim):
         edge = vehicle.current
         if edge is not None:
             # leave previous edge
-            edge['occupancy'] -= 1
+            edge['occupancy'] -= self.roads.vehicle_size
             if edge['occupancy'] < 0:
                 raise Exception('occupancy should be positive')
             vehicle.route.pop(0)
-            self.data['road_capacities'][edge['id']].append((int(edge['occupancy']), float(time)))
+            self.data['road_capacities'][edge['id']].append((float(edge['occupancy']), float(time)))
 
         # compute next leg
         leg = self.road_travel(vehicle.route, vehicle.type)
@@ -373,10 +373,10 @@ class TransitSim(Sim):
         leg, edge, travel_time = leg
 
         # enter edge
-        edge['occupancy'] += 1
+        edge['occupancy'] += self.roads.vehicle_size
         if edge['occupancy'] <= 0:
             raise Exception('adding occupant shouldnt make it 0')
-        self.data['road_capacities'][edge['id']].append((int(edge['occupancy']), float(time)))
+        self.data['road_capacities'][edge['id']].append((float(edge['occupancy']), float(time)))
 
         vehicle.current = edge
 

@@ -56,7 +56,8 @@ def lookup_place(place):
 class Roads():
     """manages the road network"""
 
-    def __init__(self, place, transit=None, distance=10000, buffer=2000, type='drive'):
+    def __init__(self, place, scale=1.0, transit=None, distance=10000, buffer=2000, type='drive'):
+        self.vehicle_size = scale
         self.place = place
         self.transit = transit
         self.id = place.lower().replace(' ', '_')
@@ -186,7 +187,7 @@ class Roads():
             # length is in meters
             # TODO assuming a car is 4.5m long on average
             # should def consider other vehicles e.g. trucks, buses, etc
-            capacity = math.ceil(d['length']/4.5)
+            capacity = math.ceil(d['length']/4.5) * self.vehicle_size
 
             id = d['osmid']
             if isinstance(id, list):
