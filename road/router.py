@@ -79,7 +79,7 @@ class Router():
 
         # Congestion is complex so this is only a simple heuristic.
         # It varies depending on headway, speed of cars in front, and other factors
-        congestion_multiplier = 1 + math.sqrt(occupancy_per_lane**2/edge['capacity'])
+        congestion_multiplier = 1 + math.sqrt(occupancy_per_lane**2/edge['capacity']/(60*60))
 
         return (time * congestion_multiplier)/config.SPEED_FACTOR
 
