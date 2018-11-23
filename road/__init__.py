@@ -23,7 +23,6 @@ edge attributes (may not all be present):
 """
 
 import os
-import math
 import config
 import pyproj
 import logging
@@ -44,6 +43,34 @@ ox.settings.data_folder = 'data/networks'
 geo_proj = pyproj.Proj({'init':'epsg:4326'}, preserve_units=True)
 
 Edge = recordclass('Edge', ['id', 'frm', 'to', 'no', 'data', 'p', 'pt'])
+
+
+# Using "LAUDO DE ESTUDO DE IMPACTO NO SISTEMA VIÁRO" as a reference
+# Linearly interpolating b/w values
+# Lengths in meters
+# Capacities in veh/h
+capacity_lens = [0, 3, 3.3, 3.6, 3.9, 4.2, 4.5, 4.8, 5.2]
+capacities = [0, 1850, 1875, 1900, 1950, 2075, 2250, 2475, 2700]
+
+def estimate_capacity(length):
+    """Estimate road capacity (in veh/h) based on road length.
+    Assumes to be per lane."""
+    capacity = None
+    if length > capacity_lens[-1]:
+        # Webster method
+        Fcom, Fest, Fcond = 1., 1., 1.
+        capacity = 525 * length * Fcom * Fest * Fcond
+    else:
+        for i, (l, l_n) in enumerate(zip(capacity_lens, capacity_lens[1:])):
+            if length == l:
+                capacity = capacities[i]
+            elif length > l and length < l_n:
+                lo, up = capacities[i], capacities[i+1]
+                m = up - lo
+                capacity = lo + m * (length - l)/(l_n-l)
+            if capacity:
+                break
+    return capacity
 
 
 def lookup_place(place):
@@ -183,11 +210,8 @@ class Roads():
                     impute_speeds[hw].append(maxspeed)
                 d['maxspeed'] = maxspeed
 
-            # estimate vehicle capacity per lane
-            # length is in meters
-            # TODO assuming a car is 4.5m long on average
-            # should def consider other vehicles e.g. trucks, buses, etc
-            capacity = math.ceil(d['length']/4.5) * self.vehicle_size
+            # Estimate vehicle capacity per lane, in veh/h.
+            capacity = estimate_capacity(d['length']) * self.vehicle_size
 
             id = d['osmid']
             if isinstance(id, list):
