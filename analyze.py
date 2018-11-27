@@ -37,18 +37,37 @@ for agent_id, stop_start, stop_end, stop_type, stop_deptime, time in data['agent
 agent_travel_speeds = {}
 for agent_id, travel_time in agent_travel_times.items():
     dist = agent_travel_dists[agent_id]
-    agent_travel_speeds[agent_id] = dist/travel_time/60 # km/h
+    try:
+        agent_travel_speeds[agent_id] = dist/(travel_time/60) # km/h
+    except ZeroDivisionError:
+        print('ZeroDivisionError, distance:', dist)
+        agent_travel_speeds[agent_id] = 0
+
+agent_trip_types = {id: 'public' if public else 'private'
+                    for id, public in data['agent_trip_types'].items()}
 
 df = pd.DataFrame.from_dict({
     'time': agent_travel_times,
     'distance': agent_travel_dists,
-    'speed': agent_travel_speeds
+    'speed': agent_travel_speeds,
+    'trip_type': agent_trip_types
 })
+df = df.dropna()
 
 sns.set() # set default seaborn styles
-fig, axs = plt.subplots(nrows=3, figsize=(10,10))
-sns.distplot(df.time, kde=False, axlabel='time (min)', ax=axs[0])
-sns.distplot(df.distance, kde=False, axlabel='distance (km)', ax=axs[1])
-sns.distplot(df.speed, kde=False, axlabel='speed (km/h)', ax=axs[2])
+df_public, df_private = df.loc[df.trip_type == 'public'], df.loc[df.trip_type == 'private']
+palette = {'public': 'r', 'private': 'b'}
+fig, axs = plt.subplots(nrows=4, figsize=(12,16))
+
+for (key, unit), ax in zip([('time', 'min'), ('distance', 'km'), ('speed', 'km/h')], axs):
+    for type, df in [('public', df_public), ('private', df_private)]:
+        sns.distplot(df[key],
+                     kde=False,
+                     axlabel='{} ({})'.format(key, unit),
+                     color=palette[type],
+                     ax=ax)
+sns.scatterplot(df.distance, df.time, hue=df.trip_type,
+                palette=palette, markers=['.', 'x'], ax=axs[-1])
+plt.tight_layout()
 plt.savefig('travel_plots.png')
 plt.show()
