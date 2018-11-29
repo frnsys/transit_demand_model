@@ -64,8 +64,8 @@ class Router():
         """travel time for a traveler entering an edge"""
         # assuming people always drive at maxspeed
         # maxspeed in km/h
-        meters_per_hour = edge['maxspeed']/1000
-        meters_per_second = meters_per_hour * 60
+        meters_per_hour = edge['maxspeed'] * 1000
+        meters_per_second = meters_per_hour/(3600)
 
         # time should be in seconds
         time = (edge['length']/meters_per_second)
