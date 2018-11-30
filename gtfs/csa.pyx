@@ -119,8 +119,7 @@ cdef class CSA:
 
     cpdef Route route_many(self, vector[unsigned int] starts, vector[unsigned int] ends, vector[double] dep_times, vector[double] walk_times):
         cdef:
-            int i
-            unsigned int j
+            unsigned int i
             unsigned int n = starts.size()
             vector[Route] routes
             double best_time = INFINITY
@@ -131,7 +130,7 @@ cdef class CSA:
         for i in prange(n, nogil=True):
             routes[i] = self.route(starts[i], ends[i], dep_times[i], walk_times[i])
 
-        for j in range(routes.size()):
+        for i in range(routes.size()):
             if routes[i].time < best_time:
                 best_time = routes[i].time
                 best_route = routes[i]
