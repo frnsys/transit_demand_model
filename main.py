@@ -79,7 +79,7 @@ def run(place, gtfs_path, sim_output_path, sim_date, sim_scale, debug):
     transit = Transit(gtfs_path)
 
     logger.info('Preparing public transit router...')
-    router = transit.router_for_day(dt)
+    transit_router = transit.router_for_day(dt)
 
     logger.info('Preparing public transit road network...')
     transit_roads = Roads(place, transit=transit, type='drive_service', buffer=2000)
@@ -92,7 +92,7 @@ def run(place, gtfs_path, sim_output_path, sim_date, sim_scale, debug):
         with open(os.path.join(sim_transit_path, fname), 'r') as f:
             snapshot = json.load(f)
         # viz output is a 60min window starting from 8am
-        sim = TransitSim(transit, router, roads, transit_roads,
+        sim = TransitSim(transit, transit_router, roads, transit_roads,
                          save_history=True, history_window=(8*60*60, 8*60*60+(60*60)), debug=debug)
 
         # compute data needed to determine car ownership

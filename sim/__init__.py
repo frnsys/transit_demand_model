@@ -29,11 +29,11 @@ Stop.Type = StopType
 
 
 class TransitSim(Sim):
-    def __init__(self, transit, router, roads, transit_roads,
+    def __init__(self, transit, transit_router, roads, transit_roads,
                  cache_routes=True, save_history=False, history_window=(8*60*60, 8*60*60+5*60), debug=False):
         super().__init__()
         self.transit = transit
-        self.router = router
+        self.router = transit_router
         self.roads = roads
         self.transit_roads = transit_roads
 
@@ -108,6 +108,7 @@ class TransitSim(Sim):
                 # TODO just skipping for now
                 # this has happened because the departure time
                 # is late and we don't project schedules into the next day
+                logger.warn('Ignoring no public transit route found! ({} -> {})'.format(stop.start, stop.end))
                 return
         else:
             try:
