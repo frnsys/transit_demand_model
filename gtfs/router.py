@@ -22,7 +22,7 @@ class TransitRouter:
         # reduce connections to only those for this day
         connections = [c for c in self.T.connections if self.T.trip_idx.id[c['trip_id']] in self.valid_trips]
 
-        self.csa = CSA(connections, self.T.footpaths, config.BASE_TRANSFER_TIME)
+        self.csa = CSA(connections, self.T.footpaths, config.BASE_TRANSFER_TIME, len(self.T.stops))
 
     def route(self, start_coord, end_coord, dep_time, closest_stops=2):
         """compute a trip-level route between
@@ -43,11 +43,11 @@ class TransitRouter:
 
         # if a same stop is in start and end stops,
         # walking is probably the best option
+        direct_walk_time = util.walking_time(
+            start_coord, end_coord,
+            config.FOOTPATH_DELTA_BASE, config.FOOTPATH_SPEED_KMH)
         if same_stops:
-            walk_time = util.walking_time(
-                start_coord, end_coord,
-                config.FOOTPATH_DELTA_BASE, config.FOOTPATH_SPEED_KMH)
-            return [WalkLeg(time=walk_time)], walk_time
+            return [WalkLeg(time=direct_walk_time)], direct_walk_time
 
         # find best combination of start/end stops
         starts = []
@@ -64,9 +64,49 @@ class TransitRouter:
         if not route['path']:
             raise NoTransitRouteFound
 
+        # Correct route order (start->end)
         time = route['time']
         route = route['path'][::-1]
-        return [
+
+        # Compute some combination of the route and walking
+        while len(route) > 1:
+            # Get current leg and previous leg
+            leg = route.pop()
+            prev_leg = route[-1]
+
+            # Check if, from the previous leg's arrival time,
+            # walking directly to the end stop is faster
+            # and a "reasonable" distance
+            stop_id = self.T.stop_idx.id[prev_leg['arr_stop']]
+            stop = self.T.stops.loc[stop_id]
+            stop_coord = stop.stop_lat, stop.stop_lon
+            walk_time_to_end = util.walking_time(
+                stop_coord, end_coord,
+                config.FOOTPATH_DELTA_BASE, config.FOOTPATH_SPEED_KMH)
+            leg_time_to_end = time - (prev_leg['arr_time'] - dep_time)
+            if walk_time_to_end > leg_time_to_end:
+                # Add the removed leg back on
+                route.append(leg)
+                break
+
+        # Add on the last walk leg from last stop
+        stop_id = self.T.stop_idx.id[route[-1]['arr_stop']]
+        stop = self.T.stops.loc[stop_id]
+        stop_coord = stop.stop_lat, stop.stop_lon
+        walk_time = util.walking_time(
+            stop_coord, end_coord,
+            config.FOOTPATH_DELTA_BASE, config.FOOTPATH_SPEED_KMH)
+        walk_leg = WalkLeg(time=walk_time)
+
+        # Recalculate time
+        time = (route[-1]['arr_time'] - route[0]['dep_time']) + walk_time
+
+        # Compare direct walking time
+        # TODO may need to constrain this
+        # if direct_walk_time < time:
+        #     return [WalkLeg(time=direct_walk_time)], direct_walk_time
+
+        route = [
             TransitLeg(
                 dep_stop=l['dep_stop'],
                 arr_stop=l['arr_stop'],
@@ -77,7 +117,10 @@ class TransitRouter:
                 dep_stop=l['dep_stop'],
                 arr_stop=l['arr_stop'],
                 time=l['time'])
-            for l in route], time
+            for l in route]
+        route.append(walk_leg)
+
+        return route, time
 
     def route_stops(self, start_idx, end_idx, dep_time):
         return self.csa.route(start_idx, end_idx, dep_time)

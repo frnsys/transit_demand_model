@@ -22,36 +22,40 @@ ctypedef struct Connection:
     ConnectionType type
     int trip_id
 
+ctypedef struct Leg:
+    Stop dep_stop
+    double dep_time
+    Stop arr_stop
+    double arr_time
+    ConnectionType type
+    int trip_id
+    unsigned int n_stops
+
 ctypedef struct Footpath:
     Stop dep_stop
     Stop arr_stop
     double time
 
 ctypedef struct Route:
-    vector[Connection] path
+    vector[Leg] path
     double time
 
 cdef class CSA:
     cdef:
-        int n_stops
+        unsigned int n_stops
         double base_transfer_time
         Connection no_connection
         vector[Connection] connections
         vector[vector[Footpath]] footpaths
 
-    def __init__(self, list connections, dict footpaths, double base_transfer_time):
+    def __init__(self, list connections, dict footpaths, double base_transfer_time, unsigned int n_stops):
         # NOTE: this assumes that connections is sorted by dep time, ascending
-        self.n_stops = 0
+        self.n_stops = n_stops
         self.connections.reserve(len(connections))
         self.base_transfer_time = base_transfer_time
-        for i, con in enumerate(connections):
-            if con['dep_stop'] > self.n_stops:
-                self.n_stops = con['dep_stop']
-            if con['arr_stop'] > self.n_stops:
-                self.n_stops = con['arr_stop']
+        for con in connections:
             con['type'] = ConnectionType.trip
             self.connections.push_back(con)
-        self.n_stops += 1
 
         self.footpaths.reserve(len(footpaths))
         self.footpaths.assign(len(footpaths), [])
@@ -68,7 +72,7 @@ cdef class CSA:
         cdef:
             Route route = make_route()
             vector[Connection] in_connections
-            vector[Connection] path
+            vector[Leg] path
 
         in_connections = self._route(start, end, dep_time)
 
@@ -83,7 +87,6 @@ cdef class CSA:
 
     cdef vector[Connection] _route(self, unsigned int start, unsigned int end, double dep_time) nogil:
         cdef:
-            int in_idx
             Connection c
             vector[Connection] in_connections
             vector[double] earliest_arrivals
@@ -119,7 +122,7 @@ cdef class CSA:
 
     cpdef Route route_many(self, vector[unsigned int] starts, vector[unsigned int] ends, vector[double] dep_times, vector[double] walk_times):
         cdef:
-            unsigned int i
+            int i
             unsigned int n = starts.size()
             vector[Route] routes
             double best_time = INFINITY
@@ -138,26 +141,32 @@ cdef class CSA:
         return best_route
 
 
-cdef vector[Connection] build_route(unsigned int start, unsigned int end, vector[Connection] in_connections) nogil:
+cdef vector[Leg] build_route(unsigned int start, unsigned int end, vector[Connection] in_connections) nogil:
     # build out the route to return
     # consisting of only start, end, and transfer connections
     cdef:
-        vector[Connection] route
-        Connection c = in_connections[end]
+        vector[Leg] route
+        Connection cur_c = in_connections[end]
+        Connection to_c = in_connections[end]
+        Leg leg
+        unsigned int n_stops = 0
 
-    route.push_back(c)
-    while c.dep_stop != start:
-        next_c = in_connections[c.dep_stop]
-        if c.type != next_c.type or c.trip_id != next_c.trip_id:
-            route.push_back(c)
-        c = next_c
-    route.push_back(c)
+    while cur_c.dep_stop != start:
+        from_c = in_connections[cur_c.dep_stop]
+        n_stops += 1
+        if cur_c.type != from_c.type or cur_c.trip_id != from_c.trip_id:
+            leg = make_leg(from_c, to_c, n_stops)
+            route.push_back(leg)
+            n_stops = 0
+            to_c = from_c
+        cur_c = from_c
 
-    # reverse order
-    # return route[::-1]
-    # TODO
+    leg = make_leg(cur_c, to_c, n_stops)
+    route.push_back(leg)
+
     # NOTE this route is backward
     return route
+
 
 # https://github.com/cython/cython/issues/1642
 cdef Connection make_connection(
@@ -177,10 +186,26 @@ cdef Connection make_connection(
     c.trip_id = trip_id
     return c
 
+
+cdef Leg make_leg(Connection from_connection, Connection to_connection, unsigned int n_stops) nogil:
+    cdef Leg l
+    l.dep_stop = from_connection.dep_stop
+    l.dep_time = from_connection.dep_time
+    l.arr_stop = to_connection.arr_stop
+    l.arr_time = to_connection.arr_time
+    # Assume these are from the same trip
+    # (they should be)
+    l.trip_id = from_connection.trip_id
+    l.type = from_connection.type
+    l.n_stops = n_stops
+    return l
+
+
 cdef Route make_route() nogil:
     cdef Route r
     r.time = INFINITY
     return r
+
 
 cdef void expand_footpaths(Connection c, vector[Footpath] footpaths, vector[Connection] in_connections) nogil:
     # scan outgoing footpaths from the arrival stop
