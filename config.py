@@ -3,7 +3,7 @@ BASE_TRANSFER_TIME = 2*60
 
 # footpath_delta = delta_base + km / speed_kmh
 FOOTPATH_DELTA_BASE = 2*60
-FOOTPATH_SPEED_KMH = 5 / 3600
+FOOTPATH_SPEED_KMH = 5
 
 # all footpaths longer than that are discarded as invalid
 FOOTPATH_DELTA_MAX = 7*60

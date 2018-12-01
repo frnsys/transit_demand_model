@@ -34,7 +34,7 @@ def walking_time(coord_a, coord_b, delta_base, speed_kmh):
     # Alternative: use UTM coordinates and KDTree (e.g. scipy) or spatial dbs
     # lat, lon ordering
     km = haversine(coord_a[0], coord_a[1], coord_b[0], coord_b[1])
-    return delta_base + km / speed_kmh
+    return delta_base + km / (speed_kmh/3600)
 
 
 def gtfs_time_to_secs(time):
