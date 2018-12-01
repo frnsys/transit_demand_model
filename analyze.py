@@ -60,8 +60,8 @@ palette = {'public': 'r', 'private': 'b'}
 fig, axs = plt.subplots(nrows=4, figsize=(12,16))
 
 for (key, unit), ax in zip([('time', 'min'), ('distance', 'km'), ('speed', 'km/h')], axs):
-    for type, df in [('public', df_public), ('private', df_private)]:
-        sns.distplot(df[key],
+    for type, df_ in [('public', df_public), ('private', df_private)]:
+        sns.distplot(df_[key],
                      kde=False,
                      axlabel='{} ({})'.format(key, unit),
                      color=palette[type],
