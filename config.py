@@ -1,3 +1,9 @@
+# base probability for road accidents
+BASE_ACCIDENT_PROB = 0.001
+
+# range of times to clear accident, in seconds
+ACCIDENT_CLEAR_TIME = [3600*2, 3600*4]
+
 # lower-bound time-delta overhead for changing trips
 BASE_TRANSFER_TIME = 2*60
 

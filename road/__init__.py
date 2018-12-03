@@ -220,6 +220,7 @@ class Roads():
                 'id': id,
                 'occupancy': 0,
                 'capacity': capacity,
+                'accident': False
             })
 
         # impute missing speeds

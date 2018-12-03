@@ -62,26 +62,36 @@ class Router():
 
     def edge_travel_time(self, edge):
         """travel time for a traveler entering an edge"""
+        # occupancy, including this new vehicle
+        occupancy = edge['occupancy'] + self.roads.vehicle_size
+
+        capacity = edge['capacity']
+
+        # Halve capacity if there's an accident on the road
+        if edge['accident']: capacity /= 2
+
+        # assuming each vehicle takes its own lane
+        # if possible
+        # occupancy_per_lane = self.roads.vehicle_size + (occupancy-self.roads.vehicle_size)//edge['lanes']
+
+        # Congestion is complex so this is only a simple heuristic.
+        # It varies depending on headway, speed of cars in front, and other factors
+        # congestion_multiplier = 1 + math.sqrt(occupancy_per_lane**2/edge['capacity'])
+        if occupancy > capacity:
+            congestion_multiplier = 0.1
+        else:
+            congestion_multiplier = 1.
+
         # assuming people always drive at maxspeed
         # maxspeed in km/h
         meters_per_hour = edge['maxspeed'] * 1000
         meters_per_second = meters_per_hour/(3600)
+        speed = meters_per_second * congestion_multiplier
 
         # time should be in seconds
-        time = (edge['length']/meters_per_second)
+        time = (edge['length']/speed)
 
-        # occupancy, including this new vehicle
-        occupancy = edge['occupancy'] + self.roads.vehicle_size
-
-        # assuming each vehicle takes its own lane
-        # if possible
-        occupancy_per_lane = self.roads.vehicle_size + (occupancy-self.roads.vehicle_size)//edge['lanes']
-
-        # Congestion is complex so this is only a simple heuristic.
-        # It varies depending on headway, speed of cars in front, and other factors
-        congestion_multiplier = 1 + math.sqrt(occupancy_per_lane**2/edge['capacity']/(60*60))
-
-        return (time * congestion_multiplier)/config.SPEED_FACTOR
+        return time/config.SPEED_FACTOR
 
 
 

@@ -1,6 +1,8 @@
 import enum
 import config
+import random
 import logging
+import numpy as np
 from .base import Sim
 from tqdm import tqdm
 from functools import partial
@@ -26,6 +28,7 @@ class StopType(enum.IntEnum):
     Commute = 0
 
 Stop.Type = StopType
+
 
 
 class TransitSim(Sim):
@@ -353,6 +356,7 @@ class TransitSim(Sim):
 
     def road_next(self, vehicle, on_arrive, time):
         """compute next event in road trip"""
+        events = []
         edge = vehicle.current
         if edge is not None:
             # leave previous edge
@@ -365,9 +369,28 @@ class TransitSim(Sim):
         # compute next leg
         leg = self.road_travel(vehicle.route, vehicle.type)
 
+        # random accidents
+        if random.random() < config.BASE_ACCIDENT_PROB:
+            # sort edges by occupancy
+            edges = [(e[:3], e[-1]['occupancy'])
+                     for e in self.roads.network.edges(keys=True, data=True)
+                     if e[-1]['occupancy'] > 0]
+            if len(edges) > 0:
+                edges, probs = zip(*edges)
+                edge_idxs = range(len(edges))
+                probs = probs/np.sum(probs)
+                edge_idx = np.random.choice(edge_idxs, 1, p=probs)[0]
+                edge = edges[edge_idx]
+                self.roads.network.edges[edge]['accident'] = True
+                logger.debug('Accident occurred at edge: {}'.format(edge))
+
+                # Accident cleared up event
+                clear_time = random.randint(*config.ACCIDENT_CLEAR_TIME)
+                events.append((time+clear_time, partial(self.clear_accident, edge)))
+
         # arrived
         if leg is None:
-            return on_arrive(time)
+            return events + on_arrive(time)
 
         # TODO replanning can occur here too,
         # e.g. if travel_time exceeds expected travel time
@@ -390,7 +413,12 @@ class TransitSim(Sim):
         # lights/intersections, so should add in some time,
         # but how much?
         # or will it not affect the model much?
-        return [(travel_time, partial(self.road_next, vehicle, on_arrive))]
+        return events + [(travel_time, partial(self.road_next, vehicle, on_arrive))]
+
+    def clear_accident(self, edge, time):
+        logger.debug('Accident cleared at edge: {}'.format(edge))
+        self.roads.network.edges[edge]['accident'] = False
+        return []
 
     def export(self):
         """return simulation run data in a form
