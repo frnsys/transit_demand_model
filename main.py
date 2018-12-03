@@ -15,8 +15,6 @@ from dateutil import parser
 from collections import defaultdict
 
 random.seed(0)
-logging.basicConfig(level=logging.INFO)
-logger = logging.getLogger('main')
 
 def split_path(path, splits=2):
     parts = []
@@ -53,6 +51,12 @@ def run(place, gtfs_path, sim_output_path, sim_date, sim_scale, debug):
         also uses less agents and a subset of the
         public transit trips for shorter run time
     """
+    if debug:
+        logging.basicConfig(level=logging.DEBUG)
+    else:
+        logging.basicConfig(level=logging.INFO)
+    logger = logging.getLogger('main')
+
     START = time()
 
     # TODO select date based on simulation data?
